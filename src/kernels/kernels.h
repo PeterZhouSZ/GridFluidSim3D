@@ -17,38 +17,18 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
 */
-#include "../fluidsimulation.h"
-#include "../vmath.h"
 
-void example_dambreak() {
+#ifndef KERNELS_H
+#define KERNELS_H
 
-	// This example will run a dambreak scenario where
-	// a cuboid of fluid is released at one side of the 
-	// simulation domain.
+#include <string>
 
-    int isize = 128;
-    int jsize = 64;
-    int ksize = 64;
-    double dx = 0.125;
-    FluidSimulation fluidsim(isize, jsize, ksize, dx);
+namespace Kernels {
 
-    double width, height, depth;
-    fluidsim.getSimulationDimensions(&width, &height, &depth);
+extern std::string tricubicinterpolateCL;
 
-    AABB bbox;
-    bbox.position = vmath::vec3(0, 0, 0);
-    bbox.width = 0.25*width;
-    bbox.height = 0.75*height;
-    bbox.depth = depth;
+extern std::string scalarfieldCL;
 
-    fluidsim.addFluidCuboid(bbox);
-    
-    fluidsim.addBodyForce(0.0, -25.0, 0.0);
-    fluidsim.initialize();
-
-    double timestep = 1.0 / 30.0;
-    for (;;) {
-        fluidsim.update(timestep);
-    }
-    
 }
+
+#endif

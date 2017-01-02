@@ -203,9 +203,9 @@ void ScalarField::addPointValue(vmath::vec3 p, double scale) {
 void ScalarField::addCuboid(vmath::vec3 pos, double w, double h, double d) {
     pos -= _gridOffset;
 
-    GridIndex gmin = Grid3d::positionToGridIndex(pos, _dx);
-    GridIndex gmax = Grid3d::positionToGridIndex(pos + vmath::vec3(w, h, d), _dx);
+    GridIndex gmin, gmax;
     AABB bbox = AABB(pos, w, h, d);
+    Grid3d::getGridIndexBounds(bbox, _dx, _isize, _jsize, _ksize, &gmin, &gmax);
 
     double eps = 10e-6;
     vmath::vec3 gpos;
@@ -405,6 +405,27 @@ double ScalarField::getScalarFieldValue(int i, int j, int k) {
     } 
 
     return val;
+}
+
+double ScalarField::getScalarFieldValueAtCellCenter(GridIndex g) {
+    return getScalarFieldValueAtCellCenter(g.i, g.j, g.k);
+}
+
+double ScalarField::getScalarFieldValueAtCellCenter(int i, int j, int k) {
+    FLUIDSIM_ASSERT(Grid3d::isGridIndexInRange(i, j, k, _field.width - 1, 
+                                                        _field.height - 1, 
+                                                        _field.depth - 1));
+    double sum = 0.0;
+    sum += getScalarFieldValue(i,     j,     k);
+    sum += getScalarFieldValue(i + 1, j,     k);
+    sum += getScalarFieldValue(i,     j + 1, k);
+    sum += getScalarFieldValue(i + 1, j + 1, k);
+    sum += getScalarFieldValue(i    , j    , k + 1);
+    sum += getScalarFieldValue(i + 1, j    , k + 1);
+    sum += getScalarFieldValue(i    , j + 1, k + 1);
+    sum += getScalarFieldValue(i + 1, j + 1, k + 1);
+
+    return 0.125*sum;
 }
 
 double ScalarField::getRawScalarFieldValue(GridIndex g) {

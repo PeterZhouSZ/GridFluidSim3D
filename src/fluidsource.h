@@ -40,18 +40,20 @@ class FluidSource
 {
 public:
     FluidSource();
-    FluidSource(vmath::vec3 pos);
-    FluidSource(vmath::vec3 pos, vmath::vec3 velocity);
+    FluidSource(vmath::vec3 velocity);
     virtual ~FluidSource();
 
-    void setPosition(vmath::vec3 pos);
-    vmath::vec3 getPosition();
-    void translate(vmath::vec3 trans);
-    void setVelocity(vmath::vec3 v);
-    void setDirection(vmath::vec3 dir);
+    virtual vmath::vec3 getPosition() = 0;
+    virtual void setPosition(vmath::vec3 pos) = 0;
+    virtual AABB getAABB() = 0;
+    virtual bool containsPoint(vmath::vec3 p) = 0;
+
     vmath::vec3 getVelocity();
-    void setAsInFlow();
-    void setAsOutFlow();
+    void setVelocity(vmath::vec3 v);
+    vmath::vec3 getDirection();
+    void setDirection(vmath::vec3 dir);
+    void setAsInflow();
+    void setAsOutflow();
     FluidSourceType getSourceType();
     bool isInflow();
     bool isOutflow();
@@ -59,28 +61,24 @@ public:
     void deactivate();
     bool isActive();
     int getID();
-    void setID(int identifier);
 
-    virtual GridIndexVector getNewFluidCells(FluidMaterialGrid &materialGrid,
-                                                    double dx);
-    virtual GridIndexVector getFluidCells(FluidMaterialGrid &materialGrid,
-                                                 double dx);
-    virtual GridIndexVector getCells(FluidMaterialGrid &materialGrid,
-                                            double dx);
-    virtual AABB getAABB();
-
-    virtual bool containsPoint(vmath::vec3 p);
+    GridIndexVector getAirCells(FluidMaterialGrid &materialGrid, double dx);
+    GridIndexVector getFluidCells(FluidMaterialGrid &materialGrid, double dx);
+    GridIndexVector getFluidOrAirCells(FluidMaterialGrid &materialGrid, double dx);
 
 protected:
+    virtual void _getOverlappingCells(GridIndexVector &storage, double dx) = 0;
+    
+private:
+    void _initializeID();
 
-    vmath::vec3 position;
-    vmath::vec3 velocity;
-    vmath::vec3 direction;
+    vmath::vec3 _velocity;
+    vmath::vec3 _direction;
+    bool _isActive = true;
+    FluidSourceType _sourceType = FluidSourceType::inflow;
+    int _ID;
 
-    bool isRunning = true;
-    FluidSourceType sourceType = FluidSourceType::inflow;
-    int id = 0;
-
+    static int _IDCounter;
 };
 
 #endif

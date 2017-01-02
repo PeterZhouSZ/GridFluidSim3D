@@ -54,6 +54,7 @@ freely, subject to the following restrictions:
 #include "fragmentedvector.h"
 #include "vmath.h"
 #include "fluidsimassert.h"
+#include "config.h"
 
 #include "markerparticle.h"
 #include "diffuseparticle.h"
@@ -93,6 +94,7 @@ public:
         be made before this method is run.
     */
     void initialize();
+    bool isInitialized();
 
     /*
         Advance the fluid simulation for a single frame time of dt seconds.
@@ -128,6 +130,9 @@ public:
             k   ->   depth
     */
     void getGridDimensions(int *i, int *j, int *k);
+    int getGridWidth();
+    int getGridHeight();
+    int getGridDepth();
 
     /*  
         Retrieves the physical simulation dimensions. Values are equivalent
@@ -160,8 +165,8 @@ public:
         A marker particle with a scale of 1.0 will have the radius of a 
         sphere that has a volume 1/8th of the volume of a grid cell.
     */
-    void setMarkerParticleScale(double s);
     double getMarkerParticleScale();
+    void setMarkerParticleScale(double s);
 
     /*
         The surface subdivision level determines how many times the
@@ -176,6 +181,7 @@ public:
         A higher subdivision level will produce a higher quality surface at
         the cost of longer simulation times and greater memory usage.
     */
+    int getSurfaceSubdivisionLevel();
     void setSurfaceSubdivisionLevel(int n);
 
     /*
@@ -188,7 +194,8 @@ public:
         store the polygonization grid data. Setting the number of slices will 
         reduce the memory required at the cost of speed.
     */
-    void setNumSurfaceReconstructionPolygonizerSlices(int n);
+    int getNumPolygonizerSlices();
+    void setNumPolygonizerSlices(int n);
 
     /*
         Will ensure that the output triangle mesh only contains polyhedrons
@@ -196,7 +203,23 @@ public:
         a low triangle count will reduce the triangle mesh size when saved to 
         disk.
     */
-    void setMinimumPolyhedronTriangleCount(int n);
+    int getMinPolyhedronTriangleCount();
+    void setMinPolyhedronTriangleCount(int n);
+
+    /*
+        Offset will be added to the position of the meshes output by the 
+        simulator.
+    */
+    vmath::vec3 getDomainOffset();
+    void setDomainOffset(double x, double y, double z);
+    void setDomainOffset(vmath::vec3 offset);
+
+    /*
+        Specify file format that meshes will be written as. The simulator will
+        write .PLY meshes by default.
+    */
+    void setMeshOutputFormatAsPLY();
+    void setMeshOutputFormatAsBOBJ();
 
     /*
         Enable/disable the simulation from saving polygonized triangle meshes 
@@ -219,7 +242,20 @@ public:
     */
     void enableIsotropicSurfaceReconstruction();
     void disableIsotropicSurfaceReconstruction();
-    bool isIsotropicSurfaceReconstuctionEnabled();
+    bool isIsotropicSurfaceReconstructionEnabled();
+
+    /*
+        Enable/disable the simulation from saving preview triangle 
+        meshes to disk.
+
+        A preview mesh is reconstructed at a specified resolution seperate from
+        the simulation resolution.
+
+        Enabled by default.
+    */
+    void enablePreviewMeshOutput(double dx);
+    void disablePreviewMeshOutput();
+    bool isPreviewMeshOutputEnabled();
 
     /*
         Enable/disable the simulation from saving anisotropic reconstructed triangle 
@@ -235,7 +271,7 @@ public:
     */
     void enableAnisotropicSurfaceReconstruction();
     void disableAnisotropicSurfaceReconstruction();
-    bool isAnisotropicSurfaceReconstuctionEnabled();
+    bool isAnisotropicSurfaceReconstructionEnabled();
 
     /*
         Enable/disable the simulation from simulating diffuse 
@@ -377,6 +413,36 @@ public:
     void disableAutosave();
     bool isAutosaveEnabled();
 
+    /*
+        Enable/disable use of OpenCL for particle advection.
+
+        Enabled by default.
+    */
+    void enableOpenCLParticleAdvection();
+    void disableOpenCLParticleAdvection();
+    bool isOpenCLParticleAdvectionEnabled();
+
+    /*
+        Enable/disable use of OpenCL for scalar fields.
+
+        Enabled by default.
+    */
+    void enableOpenCLScalarField();
+    void disableOpenCLScalarField();
+    bool isOpenCLScalarFieldEnabled();
+
+    /*
+        Maximum workload size for the ParticleAdvector OpenCL kernel
+    */
+    int getParticleAdvectionKernelWorkLoadSize();
+    void setParticleAdvectionKernelWorkLoadSize(int n);
+
+
+    /*
+        Maximum workload size for the CLScalarField OpenCL kernels
+    */
+    int getScalarFieldKernelWorkLoadSize();
+    void setScalarFieldKernelWorkLoadSize(int n);
 
     /*
         Add a constant force such as gravity to the simulation.
@@ -402,11 +468,16 @@ public:
             }
     */
     void addBodyForce(vmath::vec3 (*fieldFunction)(vmath::vec3));
+    vmath::vec3 getConstantBodyForce();
+    vmath::vec3 getVariableBodyForce(double x, double y, double z);
+    vmath::vec3 getVariableBodyForce(vmath::vec3 p);
+    vmath::vec3 getTotalBodyForce(double x, double y, double z);
+    vmath::vec3 getTotalBodyForce(vmath::vec3 p);
 
     /*
         Remove all added body forces.
     */
-    void resetBodyForces();
+    void resetBodyForce();
 
     /*
         Add an implicit point of fluid to the simulation. 
@@ -433,38 +504,17 @@ public:
     void addFluidCuboid(vmath::vec3 p, double width, double height, double depth);
 
     /*
-        Add a spherical shaped fluid source with position pos, radius r, and an optional 
-        emission velocity to the simulation and return a pointer to the source object.
-
-        A fluid source can be either of type inflow (emit fluid) or outflow (remove fluid) 
-        and type can be set using source->setAsInFlow() and source->setAsOutFlow() 
-        respectively.
-
-        Fluid sources are of type inflow by default.
+        Add a spherical shaped fluid source to the fluid domain. 
+        See sphericalfluidsource.h header for more information.
     */
-    SphericalFluidSource *addSphericalFluidSource(vmath::vec3 pos, double r);
-    SphericalFluidSource *addSphericalFluidSource(vmath::vec3 pos, double r, 
-                                                  vmath::vec3 velocity);
+    void addSphericalFluidSource(SphericalFluidSource *source);
 
     /*
-        Add a cuboid shaped fluid source matching the position and dimensions of bbox 
-        to the simulation and return a pointer to the source object.
-
-        An axis aligned bounding box object can be initialized in the following manner:
-
-            AABB bbox(vmath::vec3(x, y, z), width, height, depth);
-
-        where x, y, z are the position coordinates of the minimal point of the AABB
-        and width, height, depth are the dimensions according to the x,y,z directions.
-
-        A fluid source can be either of type inflow (emit fluid) or outflow (remove fluid) 
-        and type can be set using source->setAsInFlow() and source->setAsOutFlow() 
-        respectively.
-
-        Fluid sources are of type inflow by default.
+        Add a cuboid shaped fluid source to the fluid domain. 
+        See cuboidfluidsource.h header for more information.
+        See examples/exaple_inflow_outflow.h for example usage.
     */
-    CuboidFluidSource *addCuboidFluidSource(AABB bbox);
-    CuboidFluidSource *addCuboidFluidSource(AABB bbox, vmath::vec3 velocity);
+    void addCuboidFluidSource(CuboidFluidSource *source);
 
     /*
         Remove a fluid source from the simulation. The pointer will become invalid
@@ -482,8 +532,6 @@ public:
         to a region containing fluid particles, those fluid particles will
         be removed from the simulation.
     */
-    void addSolidCell(int i, int j, int k);
-    void addSolidCell(GridIndex g);
     void addSolidCells(std::vector<GridIndex> &indices);
 
     /*
@@ -493,27 +541,23 @@ public:
         The bordering cells of the simulation grid are permanently set as
         solid cells and will not be removed.
     */
-    void removeSolidCell(int i, int j, int k);
     void removeSolidCells(std::vector<GridIndex> &indices);
-
-    /*
-        Returns a vector containing the indices of all solid cells.
-    */
-    std::vector<GridIndex> getSolidCells();
-
-    /*
-        Returns a vector containing the position of the minimal grid cell
-        corner of all solid cells.
-    */
-    std::vector<vmath::vec3> getSolidCellPositions();
 
     /*
         Add fluid cells to the simulation grid. Fluid cells will only be
         added if the current cell material is of type air.
     */
-    void addFluidCell(int i, int j, int k);
-    void addFluidCell(GridIndex g);
-    void addFluidCells(GridIndexVector &indices);
+    void addFluidCells(std::vector<GridIndex> &indices);
+    void addFluidCells(std::vector<GridIndex> &indices, vmath::vec3 velocity);
+    void addFluidCells(std::vector<GridIndex> &indices, 
+                       double vx, double vy, double vz);
+
+    /*
+        Remove fluid cells from the simulation grid. When a fluid cell is
+        removed, all marker particles within the fluid cell will be removed
+        and the material will be replaced by air.
+    */
+    void removeFluidCells(std::vector<GridIndex> &indices);
 
     /*
         Returns the number of marker particles in the simulation. Marker particles
@@ -522,14 +566,16 @@ public:
     unsigned int getNumMarkerParticles();
 
     /*
-        Returns a vector of all marker particles in the simulation.
+        Returns a vector of all marker particles in the simulation. Marker
+        particles store position and velocity vectors.
     */
-    void getMarkerParticles(std::vector<MarkerParticle> &mps);
+    std::vector<MarkerParticle> getMarkerParticles();
+    std::vector<MarkerParticle> getMarkerParticles(int startidx, int endidx);
 
     /*
         Returns a vector of marker particle positions. If range indices
         are specified, the vector will contain positions ranging from 
-        start index startidx and ending at endidx inclusively.
+        [startidx, endidx).
     */
     std::vector<vmath::vec3> getMarkerParticlePositions();
     std::vector<vmath::vec3> getMarkerParticlePositions(int startidx, int endidx);
@@ -537,27 +583,28 @@ public:
     /*
         Returns a vector of marker particle velocities. If range indices
         are specified, the vector will contain velocities ranging from 
-        start index startidx and ending at endidx inclusively.
+        [startidx, endidx).
     */
     std::vector<vmath::vec3> getMarkerParticleVelocities();
     std::vector<vmath::vec3> getMarkerParticleVelocities(int startidx, int endidx);
 
     /*
-        Returns the number of diffuse particles in the simulation. Diffuse particles
-        have a position, velocity, lifetime value, and can be of type bubble, spray,
-        or foam.
+        Returns the number of diffuse particles in the simulation.
     */
     unsigned int getNumDiffuseParticles();
 
     /*
-        Returns a vector of all diffuse particles in the simulation.
+        Returns a vector of all diffuse particles in the simulation. Diffuse particles
+        store a position, velocity, lifetime, and and type (bubble, spray,
+        or foam).
     */
-    void getDiffuseParticles(std::vector<DiffuseParticle> &dps);
+    std::vector<DiffuseParticle> getDiffuseParticles();
+    std::vector<DiffuseParticle> getDiffuseParticles(int startidx, int endidx);
 
     /*
         Returns a vector of diffuse particle positions. If range indices
         are specified, the vector will contain positions ranging from 
-        start index startidx and ending at endidx inclusively.
+        [startidx, endidx).
     */
     std::vector<vmath::vec3> getDiffuseParticlePositions();
     std::vector<vmath::vec3> getDiffuseParticlePositions(int startidx, int endidx);
@@ -565,7 +612,7 @@ public:
     /*
         Returns a vector of diffuse particle velocities. If range indices
         are specified, the vector will contain velocities ranging from 
-        start index startidx and ending at endidx inclusively.
+        [startidx, endidx).
     */
     std::vector<vmath::vec3> getDiffuseParticleVelocities();
     std::vector<vmath::vec3> getDiffuseParticleVelocities(int startidx, int endidx);
@@ -573,7 +620,7 @@ public:
     /*
         Returns a vector of diffuse particle lifetimes. If range indices
         are specified, the vector will contain remaining lifetimes (in seconds) 
-        ranging from start index startidx and ending at endidx inclusively.
+        ranging from [startidx, endidx).
     */
     std::vector<float> getDiffuseParticleLifetimes();
     std::vector<float> getDiffuseParticleLifetimes(int startidx, int endidx);
@@ -581,7 +628,7 @@ public:
     /*
         Returns a vector of diffuse particle types. If range indices
         are specified, the vector will contain types ranging from 
-        start index startidx and ending at endidx inclusively.
+        [startidx, endidx).
 
         Char value and corresponding diffuse particle type:
 
@@ -631,6 +678,18 @@ private:
                         bbox(p, w, h, d) {}
     };
 
+    struct GridCellGroup {
+        GridIndexVector indices;
+        vmath::vec3 velocity;
+
+        GridCellGroup() {}
+        GridCellGroup(int isize, int jsize, int ksize) : 
+                        indices(isize, jsize, ksize) {}
+        GridCellGroup(int isize, int jsize, int ksize, vmath::vec3 v) : 
+                        indices(isize, jsize, ksize),
+                        velocity(v) {}
+    };
+
     /*
         Initializing the Fluid Simulator
 
@@ -662,19 +721,27 @@ private:
         The final initialization stage is to initialize objects that use the OpenCL
         library.
     */
+    void _initializeLogFile();
+    void _initializeSimulationGrids(int isize, int jsize, int ksize, double dx);
+    void _initializeSimulationVectors(int isize, int jsize, int ksize);
     void _initializeSimulation();
+    void _logOpenCLInfo();
     void _initializeSolidCells();
     void _initializeFluidMaterial();
     void _calculateInitialFluidSurfaceScalarField(ScalarField &field);
     void _getInitialFluidCellsFromScalarField(ScalarField &field,
                                               GridIndexVector &fluidCells);
-    void _getPartiallyFilledFluidCellParticles(GridIndexVector &partialFluidCells,
-                                               ScalarField &field,
-                                               std::vector<vmath::vec3> &partialParticles);
+    void _getFullAndPartiallyFullFluidCells(GridIndexVector &fluidCells,
+                                            GridIndexVector &fullFluidCells,
+                                            GridIndexVector &partialFluidCells);
+    void _getPartiallyFullFluidCellParticles(GridIndexVector &partialFluidCells,
+                                             ScalarField &field,
+                                             std::vector<vmath::vec3> &partialParticles);
     void _initializeMarkerParticles(GridIndexVector &fullFluidCells,
                                     std::vector<vmath::vec3> &partialParticles);
     void _initializeFluidCellIndices();
     void _initializeMarkerParticleRadius();
+    double _getMarkerParticleJitter();
     void _addMarkerParticlesToCell(GridIndex g);
     void _addMarkerParticlesToCell(GridIndex g, vmath::vec3 velocity);
     void _addMarkerParticle(vmath::vec3 p);
@@ -738,12 +805,12 @@ private:
         domain and outflow sources remove MarkerParticles and 
         DiffuseParticles from the domain.
     */
-    int _getUniqueFluidSourceID();
     void _updateFluidCells();
     void _removeParticlesInSolidCells();
     void _removeMarkerParticlesInSolidCells();
     void _removeDiffuseParticlesInSolidCells();
     void _updateAddedFluidCellQueue();
+    void _updateRemovedFluidCellQueue();
     void _updateFluidSources();
     void _updateInflowFluidSource(FluidSource *source);
     void _addNewFluidCells(GridIndexVector &cells, vmath::vec3 velocity);
@@ -766,7 +833,7 @@ private:
     */
     bool _isInternalFluidSurfaceNeeded();
     void _reconstructInternalFluidSurface();
-    TriangleMesh _polygonizeInternalSurface();
+    void _polygonizeInternalSurface(TriangleMesh &surface, TriangleMesh &preview);
 
     /*
         3. Compute LevelSet Signed Distance Field
@@ -809,9 +876,12 @@ private:
         call to _stepFluid.
     */
     void _reconstructOutputFluidSurface(double dt);
+    void _outputIsotropicSurfaceMesh();
+    void _outputAnisotropicSurfaceMesh();
+    void _outputDiffuseMaterial();
+    void _outputBrickMesh(double dt);
     std::string _numberToString(int number);
-    void _writeSurfaceMeshToFile(TriangleMesh &isomesh,
-                                 TriangleMesh &anisomesh);
+    std::string _getFrameString(int number);
     void _writeDiffuseMaterialToFile(std::string bubblefile,
                                      std::string foamfile,
                                      std::string sprayfile);
@@ -821,10 +891,12 @@ private:
     void _writeBrickMaterialToFile(std::string brickfile, 
                                    std::string colorfile, 
                                    std::string texturefile);
+    void _writeTriangleMeshToFile(TriangleMesh &mesh, std::string filename);
     void _smoothSurfaceMesh(TriangleMesh &mesh);
     void _getSmoothVertices(TriangleMesh &mesh, std::vector<int> &smoothVertices);
     bool _isVertexNearSolid(vmath::vec3 v, double eps);
-    TriangleMesh _polygonizeIsotropicOutputSurface();
+    void _polygonizeIsotropicOutputSurface(TriangleMesh &surface, 
+                                           TriangleMesh &preview);
     TriangleMesh _polygonizeAnisotropicOutputSurface();
     void _updateBrickGrid(double dt);
 
@@ -865,6 +937,8 @@ private:
     */
     void _applyBodyForcesToVelocityField(double dt);
     vmath::vec3 _getConstantBodyForce();
+    vmath::vec3 _getVariableBodyForce(double px, double py, double pz);
+    vmath::vec3 _getVariableBodyForce(vmath::vec3 p);
     void _applyConstantBodyForces(double dt);
     void _applyVariableBodyForces(double dt);
     void _applyVariableBodyForce(vmath::vec3 (*fieldFunction)(vmath::vec3),
@@ -982,7 +1056,8 @@ private:
             }
         }
 
-        for (unsigned int i = 0; i < items.size() - currentidx; i++) {
+        int numRemoved = items.size() - currentidx;
+        for (int i = 0; i < numRemoved; i++) {
             items.pop_back();
         }
         items.shrink_to_fit();
@@ -1029,13 +1104,17 @@ private:
     std::vector<FluidSource*> _fluidSources;
     std::vector<SphericalFluidSource*> _sphericalFluidSources;
     std::vector<CuboidFluidSource*> _cuboidFluidSources;
-    int _uniqueFluidSourceID = 0;
     FragmentedVector<MarkerParticle> _markerParticles;
-    GridIndexVector _addedFluidCellQueue;
+    std::vector<GridCellGroup> _addedFluidCellQueue;
+    std::vector<GridCellGroup> _removedFluidCellQueue;
     GridIndexVector _fluidCellIndices;
+    double _markerParticleJitterFactor = 0.1;
 
     // Reconstruct internal fluid surface
     TriangleMesh _surfaceMesh;
+    TriangleMesh _previewMesh;
+    bool _isPreviewSurfaceMeshEnabled = false;
+    double _previewdx = 0.0;
 
     // Compute levelset signed distance field
     LevelSet _levelset;
@@ -1045,9 +1124,9 @@ private:
     bool _isIsotropicSurfaceMeshReconstructionEnabled = true;
     bool _isAnisotropicSurfaceMeshReconstructionEnabled = false;
     bool _isDiffuseMaterialOutputEnabled = false;
-    bool _isBubbleDiffuseMaterialEnabled = false;
-    bool _isSprayDiffuseMaterialEnabled = false;
-    bool _isFoamDiffuseMaterialEnabled = false;
+    bool _isBubbleDiffuseMaterialEnabled = true;
+    bool _isSprayDiffuseMaterialEnabled = true;
+    bool _isFoamDiffuseMaterialEnabled = true;
     bool _isDiffuseMaterialFilesSeparated = false;
     bool _isBrickOutputEnabled = false;
     int _outputFluidSurfaceSubdivisionLevel = 1;
@@ -1059,6 +1138,8 @@ private:
     double _markerParticleScale = 3.0;
     int _currentBrickMeshFrame = 0;
     int _brickMeshFrameOffset = -3;
+    vmath::vec3 _domainOffset;
+    TriangleMeshFormat _meshOutputFormat = TriangleMeshFormat::ply;
     FluidBrickGrid _fluidBrickGrid;
 
     // Advect velocity field

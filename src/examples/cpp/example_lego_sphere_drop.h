@@ -17,31 +17,36 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
 */
-#include "../fluidsimulation.h"
+#include "../../fluidsimulation.h"
 
-void example_sphere_drop() {
+void example_lego_sphere_drop() {
 
-	// This example will drop a ball of fluid in the center
-    // of a rectangular fluid simulation domain.
+	// This example will drop a ball of fluid to a pool
+    // of resting fluid. The output surface mesh will be generated
+    // as LEGO bricks.
+    //
+    // The brick surface reconstruction method requires data from
+    // three consecutive frames, so data output will not be written
+    // to disk until the third frame.
 
-    int isize = 256;
+    int isize = 128;
     int jsize = 128;
     int ksize = 128;
     double dx = 0.0625;
     FluidSimulation fluidsim(isize, jsize, ksize, dx);
 
-    int subdivisionLevel = 1;
-    fluidsim.setSurfaceSubdivisionLevel(subdivisionLevel);
+    fluidsim.disableIsotropicSurfaceReconstruction();
 
-    if (subdivisionLevel >= 2) {
-    	// Helps reduce output filesize by removing polyhedrons
-    	// that do not meet a minimum triangle count threshold.
-    	fluidsim.setMinimumPolyhedronTriangleCount(64);
-    }
+    double brickWidth = 3*dx;
+    double brickHeight = 1.2*brickWidth;
+    double brickDepth = brickWidth;
+    fluidsim.enableBrickOutput(brickWidth, brickHeight, brickDepth);
 
     double width, height, depth;
     fluidsim.getSimulationDimensions(&width, &height, &depth);
-    fluidsim.addImplicitFluidPoint(width/2, height/2, depth/2, 7.0);
+    fluidsim.addImplicitFluidPoint(width/2, height/2, depth/2, 5.0);
+
+    fluidsim.addFluidCuboid(0.0, 0.0, 0.0, width, 0.125*height, depth);
     
     fluidsim.addBodyForce(0.0, -25.0, 0.0);
     fluidsim.initialize();

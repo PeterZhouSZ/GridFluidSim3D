@@ -17,7 +17,7 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
 */
-#include "../fluidsimulation.h"
+#include "../../fluidsimulation.h"
 
 void example_diffuse_inflow() {
 
@@ -35,9 +35,6 @@ void example_diffuse_inflow() {
     int ksize = 128;
     double dx = 0.0625;
     FluidSimulation fluidsim(isize, jsize, ksize, dx);
-
-    double width, height, depth;
-    fluidsim.getSimulationDimensions(&width, &height, &depth);
 
     // This option enables the diffuse particle simulation
     fluidsim.enableDiffuseMaterialOutput();
@@ -61,14 +58,19 @@ void example_diffuse_inflow() {
     // particle simulator. 
     fluidsim.setMaxNumDiffuseParticles(6e6);
 
+    double width, height, depth;
+    fluidsim.getSimulationDimensions(&width, &height, &depth);
+
     // Initialize inflow fluid source located at one end of the
     // of the simulation domain.
     AABB inflowAABB(vmath::vec3(), 5*dx, 25*dx, 40*dx);
     vmath::vec3 inflowVelocity = vmath::vec3(10.0, 0.0, 0.0);
-    CuboidFluidSource *inflow = fluidsim.addCuboidFluidSource(inflowAABB, inflowVelocity);
-    inflow->setCenter(vmath::vec3(5*dx, 0.5*height, 0.5*depth));
+    CuboidFluidSource inflow(inflowAABB, inflowVelocity);
+    inflow.setCenter(vmath::vec3(5*dx, 0.5*height, 0.5*depth));
+    fluidsim.addCuboidFluidSource(&inflow);
 
     // Create a pillar of solid cells in the center of the domain
+    std::vector<GridIndex> solidCells;
     vmath::vec3 center(0.5*width, 0.5*height, 0.5*depth);
     double pillarRadius = 15*dx;
     double rsq = pillarRadius * pillarRadius;
@@ -80,11 +82,12 @@ void example_diffuse_inflow() {
                 double distsq = v.x*v.x + v.z*v.z;
 
                 if (distsq < rsq) {
-                    fluidsim.addSolidCell(i, j, k);
+                    solidCells.push_back(GridIndex(i, j, k));
                 }
             }
         }
     }
+    fluidsim.addSolidCells(solidCells);
 
     fluidsim.addBodyForce(0.0, -25.0, 0.0);
     fluidsim.initialize();

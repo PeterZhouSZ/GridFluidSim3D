@@ -50,7 +50,7 @@ public:
     AABB getBrickAABB();
     void setBrickDimensions(double width, double height, double depth);
     void setBrickDimensions(AABB brick);
-    bool getBrickMesh(LevelSet &levelset, TriangleMesh &mesh);
+    bool getBrickMesh(TriangleMesh &mesh);
     bool isBrickMeshReady();
     void update(LevelSet &levelset, 
                 FluidMaterialGrid &materialGrid,
@@ -123,7 +123,7 @@ private:
     float _maxIntensityVelocity = 10.0f;
     float _maxIntensityAcceleration = 10.0f;
     float _decelerationRadius = 0.05f;
-    unsigned int _minNumberOfBricksInStructure = 20;
+    unsigned int _minNumberOfBricksInStructure = 0;
 
     int _numUpdates = 0;
     bool _isInitialized = false;

@@ -29,6 +29,7 @@ freely, subject to the following restrictions:
 #include "fluidmaterialgrid.h"
 #include "array3d.h"
 #include "vmath.h"
+#include "config.h"
 #include "fluidsimassert.h"
 
 class FluidSimulation;
@@ -43,7 +44,7 @@ public:
     bool loadState(std::string filename);
     void closeState();
 
-    void getGridDimensions(int *i, int *j, int *);
+    void getGridDimensions(int *i, int *j, int *k);
     double getCellSize();
     int getCurrentFrame();
     int getNumMarkerParticles();

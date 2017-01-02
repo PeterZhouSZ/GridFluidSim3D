@@ -38,32 +38,27 @@ freely, subject to the following restrictions:
 #include "spatialpointgrid.h"
 #include "fluidsimassert.h"
 
+enum class TriangleMeshFormat : char { 
+    ply   = 0x00, 
+    bobj  = 0x01
+};
+
 class TriangleMesh
 {
 public:
     TriangleMesh();
     ~TriangleMesh();
 
-    bool loadOBJ(std::string OBJFilename) {
-        return loadOBJ(OBJFilename, vmath::vec3(), 1.0);
-    }
-    bool loadOBJ(std::string OBJFilename, vmath::vec3 offset) {
-        return loadOBJ(OBJFilename, offset, 1.0);
-    }
-    bool loadOBJ(std::string OBJFilename, double scale) {
-        return loadOBJ(OBJFilename, vmath::vec3(), scale);
-    }
-    bool loadOBJ(std::string OBJFilename, vmath::vec3 offset, double scale);
-
     bool loadPLY(std::string PLYFilename);
+    bool loadBOBJ(std::string BOBJFilename);
+    void writeMeshToPLY(std::string filename);
+    void writeMeshToBOBJ(std::string filename);
+    static std::string getFileExtension(TriangleMeshFormat fmt);
 
     int numVertices();
     int numFaces();
     int numTriangles() { return numFaces(); }
     void clear();
-    void writeMeshToOBJ(std::string filename);
-    void writeMeshToSTL(std::string filename);
-    void writeMeshToPLY(std::string filename);
     void removeDuplicateTriangles();
     void updateVertexNormals();
     void updateVertexTriangles();
@@ -77,7 +72,6 @@ public:
     double getTriangleArea(int tidx);
     void getVertexNeighbours(unsigned int vidx, std::vector<int> &n);
     bool isNeighbours(Triangle t1, Triangle t2);
-    void getCellsInsideMesh(GridIndexVector &cells);
     void getTrianglePosition(unsigned int index, vmath::vec3 tri[3]);
     vmath::vec3 getTriangleNormal(unsigned int index);
     vmath::vec3 getTriangleNormalSmooth(unsigned int index, vmath::vec3 p);
@@ -119,14 +113,6 @@ private:
     bool _isOnTriangleEdge(double u, double v);
     bool _isTriangleInVector(int index, std::vector<int> &tris);
     bool _isIntInVector(int i, std::vector<int> &ints);
-    int _getIntersectingTrianglesInCell(GridIndex g, vmath::vec3 p, vmath::vec3 dir, 
-                                        std::vector<int> &tris, bool *success);
-    bool _isCellInsideMesh(const GridIndex g);
-    void _floodfill(GridIndex g, Array3d<bool> &cells);
-    void _updateTriangleGrid();
-    void _destroyTriangleGrid();
-    void _getTriangleGridCellOverlap(Triangle t, GridIndexVector &cells);
-    void _getSurfaceCells(GridIndexVector &cells);
     void _smoothTriangleMesh(double value, std::vector<bool> &isSmooth);
     void _getBoolVectorOfSmoothedVertices(std::vector<int> &verts, 
                                           std::vector<bool> &isSmooth);
@@ -149,10 +135,6 @@ private:
                                    AABB bbox,
                                    double tolerance, 
                                    std::vector<std::pair<int, int> > &pairs);
-
-    inline double _randomFloat(double min, double max) {
-        return min + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (max - min)));
-    }
 
     template<class T>
     std::string _toString(T item) {

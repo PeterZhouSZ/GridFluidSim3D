@@ -17,14 +17,15 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
 */
-#include "../fluidsimulation.h"
+#include "../../fluidsimulation.h"
 
 #include <string>
 #include <sstream>    // std::ostringstream
 #include <fstream>    // std::ofstream, std::ifstream
 
-#include "../trianglemesh.h"
-#include "../vmath.h"
+#include "../../trianglemesh.h"
+#include "../../vmath.h"
+#include "../../config.h"
 
 // convert number to a string and pad to a width of npad with zeros
 std::string numberToPaddedString(int number, int npad) {
@@ -40,7 +41,8 @@ std::string numberToPaddedString(int number, int npad) {
     only vertices that represent particle positions.
 */
 void exportParticlesAsPLY(std::vector<vmath::vec3> &particles, std::string framestr) {
-    std::string filename = "bakefiles/particles" + framestr + ".ply";
+    std::string bakefilespath = Config::getBakefilesDirectory();
+    std::string filename = bakefilespath + "/particles" + framestr + ".ply";
 
     TriangleMesh mesh;
     mesh.vertices = particles;
@@ -66,7 +68,8 @@ std::vector<vmath::vec3> importPLYParticles(std::string filename){
     with each number stored as a float.
 */
 void exportParticlesAsBinary(std::vector<vmath::vec3> &particles, std::string framestr) {
-    std::string filename = "bakefiles/particles" + framestr + ".data";
+    std::string bakefilespath = Config::getBakefilesDirectory();
+    std::string filename = bakefilespath + "/particles" + framestr + ".data";
 
     int particleByteSize = 3 * sizeof(float);
     unsigned int dataByteSize = particles.size() * particleByteSize;
@@ -113,7 +116,8 @@ std::vector<vmath::vec3> importBinaryParticles(std::string filename){
         pnz
 */
 void exportParticlesAsPlaintext(std::vector<vmath::vec3> &particles, std::string framestr) {
-    std::string filename = "bakefiles/particles" + framestr + ".txt";
+    std::string bakefilespath = Config::getBakefilesDirectory();
+    std::string filename = bakefilespath + "/particles" + framestr + ".txt";
 
     std::ostringstream writestr;
     for (unsigned int i = 0; i < particles.size(); i++) {
@@ -143,7 +147,7 @@ std::vector<vmath::vec3> importPlaintextParticles(std::string filename){
     return particles;
 }
 
-void export_particle_positions() {
+void example_export_particle_positions() {
 
     //  Exporting the simulation particle position data can be useful if you
     //  want to import the particles into an external program.

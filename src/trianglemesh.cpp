@@ -41,92 +41,6 @@ void TriangleMesh::clear() {
     _vertexTriangles.clear();
 }
 
-// method of loading OBJ from:
-// http://www.opengl-tutorial.org/beginners-tutorials/tutorial-7-model-loading/
-// .obj must be a closed watertight mesh with triangle with either shared triangle
-// vertices in correct winding order, or vertices with pre-computed vertex normals.
-bool TriangleMesh::loadOBJ(std::string filename, vmath::vec3 offset, double scale) {
-    clear();
-
-    std::vector<vmath::vec3> temp_vertices;
-    std::vector<vmath::vec3> temp_normals;
-    std::vector<Triangle> temp_triangles;
-
-    FILE * file;
-    file = fopen(filename.c_str(), "rb");
-    if( file == nullptr ){
-        printf("Unable to open the OBJ file!\n");
-        return false;
-    }
-
-    for (;;) {
-        char lineHeader[128];
-        // read the first word of the line
-        int res = fscanf(file, "%s", lineHeader);
-        if (res == EOF) {
-            break; // EOF = End Of File. Quit the loop.
-        }
-        
-        if ( strcmp( lineHeader, "v" ) == 0 ){
-            vmath::vec3 vertex;
-            fscanf(file, "%f %f %f\n", &vertex.x, &vertex.y, &vertex.z );
-            temp_vertices.push_back((float)scale*vertex + offset);
-        } else if (strcmp( lineHeader, "vn" ) == 0) {
-            vmath::vec3 normal;
-            fscanf(file, "%f %f %f\n", &normal.x, &normal.y, &normal.z );
-            temp_normals.push_back(normal);
-        } else if ( strcmp( lineHeader, "f" ) == 0 ) {
-            long start = ftell(file);
-            unsigned int vertexIndex[3];
-            unsigned int uvIndex[3];
-            unsigned int normalIndex[3];
-            int matches = fscanf(file, "%d %d %d\n", &vertexIndex[0], &vertexIndex[1], &vertexIndex[2]);
-
-            if (matches != 3){
-                long diff = ftell(file) - start;
-                fseek (file, -diff , SEEK_CUR);
-                start = ftell(file);
-                matches = fscanf(file, "%d//%d %d//%d %d//%d\n", &vertexIndex[0], &normalIndex[0], 
-                                                                 &vertexIndex[1], &normalIndex[1],
-                                                                 &vertexIndex[2], &normalIndex[2]);
-                if (matches != 6) {
-                    long diff = ftell(file) - start;
-                    fseek (file, -diff , SEEK_CUR);
-                    matches = fscanf(file, "%d/%d/%d %d/%d/%d %d/%d/%d\n", 
-                                              &vertexIndex[0], &normalIndex[0], &uvIndex[0],
-                                              &vertexIndex[1], &normalIndex[1], &uvIndex[1],
-                                              &vertexIndex[2], &normalIndex[2], &uvIndex[2]);
-
-                    if (matches != 9) {
-                        printf("File can't be read by our simple parser : ( Try exporting with other options\n");
-                        return false;
-                    }
-                }
-            }
-
-            Triangle t = Triangle(vertexIndex[0] - 1,
-                                  vertexIndex[1] - 1,
-                                  vertexIndex[2] - 1);
-            temp_triangles.push_back(t);
-        }
-    }
-
-    fclose(file);
-
-    vertices.insert(vertices.end(), temp_vertices.begin(), temp_vertices.end());
-    triangles.insert(triangles.end(), temp_triangles.begin(), temp_triangles.end());
-    removeDuplicateTriangles();
-
-    if (normals.size() == vertices.size()) {
-        normals.clear();
-        normals.insert(normals.end(), normals.begin(), normals.end());
-    } else {
-        updateVertexNormals();
-    }
-
-    return true;
-}
-
 bool TriangleMesh::loadPLY(std::string PLYFilename) {
     clear();
 
@@ -154,97 +68,46 @@ bool TriangleMesh::loadPLY(std::string PLYFilename) {
     return true;
 }
 
-void TriangleMesh::writeMeshToOBJ(std::string filename) {
-    FLUIDSIM_ASSERT(normals.size() == vertices.size());
-
-    std::ostringstream str;
-
-    str << "# OBJ file format with ext .obj" << std::endl;
-    str << "# vertex count = " << vertices.size() << std::endl;
-    str << "# face count = " << triangles.size() << std::endl;
-
-    vmath::vec3 p;
-    for (unsigned int i = 0; i < vertices.size(); i++) {
-        p = vertices[i];
-        str << "v " << p.x << " " << p.y << " " << p.z << std::endl;
+bool TriangleMesh::loadBOBJ(std::string BOBJFilename) {
+    std::ifstream file(BOBJFilename.c_str(), std::ios::in | std::ios::binary);
+    if (!file.is_open()) {
+        return false;
     }
 
-    vmath::vec3 n;
-    for (unsigned int i = 0; i < normals.size(); i++) {
-        n = normals[i];
-        str << "vn " << n.x << " " << n.y << " " << n.z << std::endl;
+    int numverts;
+    file.read((char *)&numverts, sizeof(int));
+    if (!file.good() || numverts < 0) {
+        return false;
+    }
+    
+    int binsize = 3 * numverts * sizeof(float);
+    std::vector<vmath::vec3> vertices(numverts);
+    if (numverts > 0) {
+        file.read((char *)vertices.data(), binsize);
+        if (!file.good()) {
+            return false;
+        }
     }
 
-    Triangle t;
-    int v1, v2, v3;
-    for (unsigned int i = 0; i < triangles.size(); i++) {
-        t = triangles[i];
-        v1 = t.tri[0] + 1;
-        v2 = t.tri[1] + 1;
-        v3 = t.tri[2] + 1;
-
-        str << "f " << v1 << "//" << v1 << " " <<
-            v2 << "//" << v2 << " " <<
-            v3 << "//" << v3 << std::endl;
+    int numfaces;
+    file.read((char *)&numfaces, sizeof(int));
+    if (!file.good() || numfaces < 0) {
+        return false;
     }
 
-    std::ofstream out(filename);
-    out << str.str();
-    out.close();
-}
-
-void TriangleMesh::writeMeshToSTL(std::string filename) {
-
-    // 80 char header, 4 byte num triangles, 50 bytes per triangle
-    int binsize = 80*sizeof(char) + sizeof(unsigned int) + 
-                  triangles.size() * (12*sizeof(float) + sizeof(unsigned short));
-    char *bin = new char[binsize];
-
-    for (int i = 0; i < binsize; i++) {
-        bin[i] = 0x00;
+    binsize = 3 * numfaces * sizeof(int);
+    std::vector<Triangle> triangles(numfaces);
+    if (numfaces > 0) {
+        file.read((char *)triangles.data(), binsize);
+        if (!file.good()) {
+            return false;
+        }
     }
 
-    int offset = 80;
-    unsigned int numTriangles = triangles.size();
-    memcpy(bin + offset, &numTriangles, sizeof(unsigned int));
-    offset += sizeof(int);
+    this->vertices = vertices;
+    this->triangles = triangles;
 
-    float tri[12*sizeof(float)];
-    Triangle t;
-    vmath::vec3 normal, v1, v2, v3;
-    for (unsigned int i = 0; i < triangles.size(); i++) {
-        t = triangles[i];
-        normal = getTriangleNormal(i);
-        v1 = vertices[t.tri[0]];
-        v2 = vertices[t.tri[1]];
-        v3 = vertices[t.tri[2]];
-
-        tri[0] = normal.x;
-        tri[1] = normal.y;
-        tri[2] = normal.z;
-        tri[3] = v1.x;
-        tri[4] = v1.y;
-        tri[5] = v1.z;
-        tri[6] = v2.x;
-        tri[7] = v2.y;
-        tri[8] = v2.z;
-        tri[9] = v3.x;
-        tri[10] = v3.y;
-        tri[11] = v3.z;
-
-        memcpy(bin + offset, tri, 12*sizeof(float));
-        offset += 12*sizeof(float) + sizeof(unsigned short);
-    }
-
-    std::ofstream erasefile;
-    erasefile.open(filename.c_str(), std::ofstream::out | std::ofstream::trunc);
-    erasefile.close();
-
-    std::ofstream file(filename.c_str(), std::ios::out | std::ios::binary);
-    file.write(bin, binsize);
-    file.close();
-
-    delete[] bin;
+    return true;
 }
 
 void TriangleMesh::writeMeshToPLY(std::string filename) {
@@ -288,8 +151,8 @@ void TriangleMesh::writeMeshToPLY(std::string filename) {
 
     std::string vertstring = _toString(vertices.size());
     std::string facestring = _toString(triangles.size());
-    int vertdigits = vertstring.length();
-    int facedigits = facestring.length();
+    int vertdigits = (int)vertstring.length();
+    int facedigits = (int)facestring.length();
 
     int offset = 0;
     int headersize;
@@ -301,11 +164,11 @@ void TriangleMesh::writeMeshToPLY(std::string filename) {
 
     int binsize;
     if (isColorEnabled) {
-        binsize = headersize + 3*(sizeof(float)*vertices.size() + sizeof(unsigned char)*vertices.size())
-                             + (sizeof(unsigned char) + 3*sizeof(int))*triangles.size();
+        binsize = headersize + 3*(sizeof(float)*(int)vertices.size() + sizeof(unsigned char)*(int)vertices.size())
+                             + (sizeof(unsigned char) + 3*sizeof(int))*(int)triangles.size();
     } else {
-        binsize = headersize + 3*sizeof(float)*vertices.size()
-                             + (sizeof(unsigned char) + 3*sizeof(int))*triangles.size();
+        binsize = headersize + 3*sizeof(float)*(int)vertices.size()
+                             + (sizeof(unsigned char) + 3*sizeof(int))*(int)triangles.size();
     }
     char *bin = new char[binsize];
 
@@ -372,7 +235,7 @@ void TriangleMesh::writeMeshToPLY(std::string filename) {
             vertdata[3*i + 2] = v.z;
         }
         memcpy(bin + offset, vertdata, 3*sizeof(float)*vertices.size());
-        offset += 3*sizeof(float)*vertices.size();
+        offset += 3*sizeof(float)*(int)vertices.size();
         delete[] vertdata;
     }
 
@@ -414,6 +277,36 @@ int TriangleMesh::_numDigitsInInteger(int num) {
     }
 
     return count;
+}
+
+void TriangleMesh::writeMeshToBOBJ(std::string filename) {
+    std::ofstream erasefile;
+    erasefile.open(filename, std::ofstream::out | std::ofstream::trunc);
+    erasefile.close();
+
+    std::ofstream bobj(filename.c_str(), std::ios::out | std::ios::binary);
+
+    int numVertices = (int)vertices.size();
+    bobj.write((char *)&numVertices, sizeof(int));
+
+    int binsize = 3 * numVertices * sizeof(float);
+    bobj.write((char *)vertices.data(), binsize);
+
+    int numTriangles = (int)triangles.size();
+    bobj.write((char *)&numTriangles, sizeof(int));
+
+    binsize = 3 * numTriangles * sizeof(int);
+    bobj.write((char *)triangles.data(), binsize);
+
+    bobj.close();
+}
+
+std::string TriangleMesh::getFileExtension(TriangleMeshFormat fmt) {
+    if (fmt == TriangleMeshFormat::ply) {
+        return "ply";
+    } else {
+        return "bobj";
+    }
 }
 
 bool triangleSort(const Triangle &a, const Triangle &b)
@@ -559,7 +452,7 @@ bool TriangleMesh::_getElementNumberInPlyHeader(std::string &header,
         return false;
     }
 
-    int startidx = match + element.size();
+    int startidx = (int)match + (int)element.size();
     int endidx = 0;
     bool numberFound = false;
 
@@ -625,7 +518,7 @@ bool TriangleMesh::_loadPLYVertexData(std::ifstream *file, std::string &header) 
     }
 
     int vertexDataSize = numVertices*vertexSize;
-    int vertexDataOffset = header.size();
+    int vertexDataOffset = (int)header.size();
 
     file->seekg(vertexDataOffset, std::ios_base::beg);
     char *vertexData = new char[vertexDataSize];
@@ -674,7 +567,7 @@ bool TriangleMesh::_loadPLYTriangleData(std::ifstream *file, std::string &header
     }
 
     int vertexDataSize = numVertices*vertexSize;
-    int vertexDataOffset = header.size();
+    int vertexDataOffset = (int)header.size();
 
     int numFaces;
     success = _getNumFacesInPLYHeader(header, &numFaces);
@@ -740,100 +633,6 @@ void TriangleMesh::_updateVertexTriangles() {
         _vertexTriangles[t.tri[0]].push_back(i);
         _vertexTriangles[t.tri[1]].push_back(i);
         _vertexTriangles[t.tri[2]].push_back(i);
-    }
-
-}
-
-void TriangleMesh::_getTriangleGridCellOverlap(Triangle t, GridIndexVector &cells) {
-    GridIndexVector testcells(cells.width, cells.height, cells.depth);
-    AABB tbbox = AABB(t, vertices);
-    Grid3d::getGridCellOverlap(tbbox, _dx, testcells);
-
-    AABB cbbox = AABB(vmath::vec3(), _dx, _dx, _dx);
-    for (unsigned int i = 0; i < testcells.size(); i++) {
-        cbbox.position = Grid3d::GridIndexToPosition(testcells[i], _dx);
-        if (cbbox.isOverlappingTriangle(t, vertices)) {
-            cells.push_back(testcells[i]);
-        }
-    }
-}
-
-void TriangleMesh::_updateTriangleGrid() {
-    _destroyTriangleGrid();
-    _triGrid = Array3d<std::vector<int>>(_gridi, _gridj, _gridk);
-
-    GridIndexVector cells(_gridi, _gridj, _gridk);
-    std::vector<int> *triVector;
-    Triangle t;
-    GridIndex g;
-    for (unsigned int i = 0; i < triangles.size(); i++) {
-        t = triangles[i];
-        cells.clear();
-        _getTriangleGridCellOverlap(t, cells);
-
-        for (unsigned int j = 0; j < cells.size(); j++) {
-            g = cells[j];
-            triVector = _triGrid.getPointer(g);
-            triVector->push_back(i);
-        }
-    }
-}
-
-void TriangleMesh::_destroyTriangleGrid() {
-    std::vector<int> *tris;
-    for (int k = 0; k < _triGrid.depth; k++) {
-        for (int j = 0; j < _triGrid.height; j++) {
-            for (int i = 0; i < _triGrid.width; i++) {
-                tris = _triGrid.getPointer(i, j, k);
-                tris->clear();
-                tris->shrink_to_fit();
-            }
-        }
-    }
-    _triGrid = Array3d<std::vector<int> >();
-}
-
-void TriangleMesh::_getSurfaceCells(GridIndexVector &cells) {
-    std::vector<int> *tris;
-    for (int k = 0; k < _triGrid.depth; k++) {
-        for (int j = 0; j < _triGrid.height; j++) {
-            for (int i = 0; i < _triGrid.width; i++) {
-                tris = _triGrid.getPointer(i, j, k);
-                if (tris->size() > 0) {
-                    cells.push_back(i, j, k);
-                }
-            }
-        }
-    }
-}
-
-void TriangleMesh::_floodfill(GridIndex g, Array3d<bool> &cells) {
-    FLUIDSIM_ASSERT(Grid3d::isGridIndexInRange(g, _gridi, _gridj, _gridk));
-    if (cells(g)) {
-        return;
-    }
-
-    Array3d<bool> isCellDone = Array3d<bool>(_gridi, _gridj, _gridk, false);
-    std::queue<GridIndex> queue;
-    queue.push(g);
-    isCellDone.set(g, true);
-
-    GridIndex gp;
-    GridIndex ns[6];
-    while (!queue.empty()) {
-        gp = queue.front();
-        queue.pop();
-
-        Grid3d::getNeighbourGridIndices6(gp, ns);
-        for (int i = 0; i < 6; i++) {
-            if (Grid3d::isGridIndexInRange(ns[i], _gridi, _gridj, _gridk) && 
-                    !cells(ns[i]) && !isCellDone(ns[i])) {
-                isCellDone.set(ns[i], true);
-                queue.push(ns[i]);
-            }
-        }
-
-        cells.set(gp, true);
     }
 }
 
@@ -935,48 +734,6 @@ bool TriangleMesh::_isTriangleInVector(int index, std::vector<int> &tris) {
     return false;
 }
 
-int TriangleMesh::_getIntersectingTrianglesInCell(GridIndex g, vmath::vec3 p, vmath::vec3 dir,
-                                                  std::vector<int> &tris, bool *success) {
-    if (_triGrid(g).size() == 0) {
-        *success = true;
-        return 0;
-    }
-
-    // There are cases where this method could return an incorrect number of
-    // surface intersections. If a line intersects at exactly an edge or vertex,
-    // the number of intersections could be counted incorrectly as 2 or 3.
-    // If it is detected that a line has intersected with an edge or vertex,
-    // mark *success as false and return 0
-    std::vector<int> *indices = _triGrid.getPointer(g);
-    vmath::vec3 collision;
-    vmath::vec3 tri[3];
-    double u, v;
-    int numIntersections = 0;
-
-    numIntersections = 0;
-    for (unsigned int i = 0; i < indices->size(); i++) {
-        getTrianglePosition(indices->at(i), tri);
-
-        bool isIntersecting = Collision::lineIntersectsTriangle(p, dir, 
-                                                                tri[0], tri[1], tri[2],
-                                                                &collision, &u, &v);
-        if (!isIntersecting) { continue; }
-
-        if (_isOnTriangleEdge(u, v)) {
-            *success = false;
-            return 0;
-        }
-
-        if (!_isTriangleInVector(indices->at(i), tris)) {
-            tris.push_back(indices->at(i));
-            numIntersections++;
-        }
-    }
-
-    *success = true;
-    return numIntersections;
-}
-
 bool TriangleMesh::_isIntInVector(int v, std::vector<int> &ints) {
     for (unsigned int i = 0; i < ints.size(); i++) {
         if (ints[i] == v) {
@@ -984,125 +741,6 @@ bool TriangleMesh::_isIntInVector(int v, std::vector<int> &ints) {
         }
     }
     return false;
-}
-
-bool TriangleMesh::_isCellInsideMesh(const GridIndex g) {
-    // count how many intersections between point and edge of grid
-    // even intersections: outside
-    // odd intersections: inside
-    FLUIDSIM_ASSERT(Grid3d::isGridIndexInRange(g, _gridi, _gridj, _gridk));
-    FLUIDSIM_ASSERT(_triGrid(g).size() == 0);
-
-    // Add a random jitter to the center position of the cell.
-    // If the line position is exactly in the center, intersections
-    // will be more likely to occur on triangle edges and the method
-    // _getIntersectingTrianglesInCell method will choose to safely fail.
-    // The likeliness of edge intersections is due to symmetries in the 
-    // polygonization method. 
-    double jit = 0.1*_dx;
-    vmath::vec3 jitter = vmath::vec3(_randomFloat(-jit, jit),
-                                 _randomFloat(-jit, jit),
-                                 _randomFloat(-jit, jit));
-
-    vmath::vec3 p = Grid3d::GridIndexToPosition(g, _dx) + 0.5f*vmath::vec3(_dx, _dx, _dx) + jitter;
-    vmath::vec3 dir = vmath::vec3(1.0, 0.0, 0.0);
-    
-
-    std::vector<int> allIntersections;
-    std::vector<int> leftIntersections;
-    std::vector<int> rightIntersections;
-    std::vector<int> intersections;
-    GridIndex n = GridIndex(g.i - 1, g.j, g.k);
-    while (Grid3d::isGridIndexInRange(n, _gridi, _gridj, _gridk)) {
-        intersections.clear();
-        bool success;
-        _getIntersectingTrianglesInCell(n, p, dir, intersections, &success);
-        if (!success) {
-            return false;
-        }
-
-        for (unsigned int i = 0; i < intersections.size(); i++) {
-            int idx = intersections[i];
-            if (!_isIntInVector(idx, allIntersections) && !_isTriangleInVector(idx, allIntersections)) {
-                leftIntersections.push_back(idx);
-                allIntersections.push_back(idx);
-            }
-        }
-        n = GridIndex(n.i - 1, n.j, n.k);
-    }
-
-    n = GridIndex(g.i + 1, g.j, g.k);
-    while (Grid3d::isGridIndexInRange(n, _gridi, _gridj, _gridk)) {
-        intersections.clear();
-        bool success;
-        _getIntersectingTrianglesInCell(n, p, dir, intersections, &success);
-        
-        if (!success) {
-            return false;
-        }
-
-        for (unsigned int i = 0; i < intersections.size(); i++) {
-            int idx = intersections[i];
-            if (!_isIntInVector(idx, allIntersections) && !_isTriangleInVector(idx, allIntersections)) {
-                rightIntersections.push_back(idx);
-                allIntersections.push_back(idx);
-            }
-        }
-        n = GridIndex(n.i + 1, n.j, n.k);
-    }
-
-    FLUIDSIM_ASSERT(leftIntersections.size() % 2 == rightIntersections.size() % 2);
-
-    return leftIntersections.size() % 2 == 1;
-}
-
-void TriangleMesh::getCellsInsideMesh(GridIndexVector &cells) {
-    if (_gridi == 0 || _gridj == 0 || _gridk == 0) {
-        return;
-    }
-
-    FLUIDSIM_ASSERT(cells.width == _gridi && cells.height == _gridj && cells.depth == _gridk);
-
-    // find all cells that are on the surface boundary.
-    // Iterate through surface cells and test if any of their
-    // 6 neighbours are inside the mesh. If a cell is inside the mesh,
-    // floodfill that region.
-
-    _updateTriangleGrid();
-
-    GridIndexVector surfaceCells(_gridi, _gridj, _gridk);
-    _getSurfaceCells(surfaceCells);
-
-    Array3d<bool> insideCellGrid = Array3d<bool>(_gridi, _gridj, _gridk, false);
-    for (unsigned int i = 0; i < surfaceCells.size(); i++) {
-        insideCellGrid.set(surfaceCells[i], true);
-    }
-
-    GridIndex neighbours[6];
-    GridIndex n;
-    for (unsigned int i = 0; i < surfaceCells.size(); i++) {
-        Grid3d::getNeighbourGridIndices6(surfaceCells[i], neighbours);
-        for (int j = 0; j < 6; j++) {
-            n = neighbours[j];
-            if (Grid3d::isGridIndexInRange(n, _gridi, _gridj, _gridk) && 
-                    !insideCellGrid(n) && _isCellInsideMesh(n)) {
-                _floodfill(n, insideCellGrid);
-                break;
-            }
-        }
-    }
-    
-    for (int k = 0; k < _triGrid.depth; k++) {
-        for (int j = 0; j < _triGrid.height; j++) {
-            for (int i = 0; i < _triGrid.width; i++) {
-                if (insideCellGrid(i, j, k)) {
-                    cells.push_back(i, j, k);
-                }
-            }
-        }
-    }
-    
-    _destroyTriangleGrid();
 }
 
 void TriangleMesh::_smoothTriangleMesh(double value, std::vector<bool> &isSmooth) {
@@ -1168,9 +806,6 @@ void TriangleMesh::smooth(double value, int iterations) {
 
 void TriangleMesh::smooth(double value, int iterations, 
                           std::vector<int> &verts) {
-    value = value < 0.0 ? 0.0 : value;
-    value = value > 1.0 ? 1.0 : value;
-
     std::vector<bool> isVertexSmooth;
     _getBoolVectorOfSmoothedVertices(verts, isVertexSmooth);
 
@@ -1473,7 +1108,7 @@ void TriangleMesh::append(TriangleMesh &mesh) {
     normals.reserve(normals.size() + mesh.normals.size());
     triangles.reserve(triangles.size() + mesh.triangles.size());
 
-    int indexOffset = vertices.size();
+    int indexOffset = (int)vertices.size();
 
     vertices.insert(vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
     vertexcolors.insert(vertexcolors.end(), mesh.vertexcolors.begin(), mesh.vertexcolors.end());
@@ -1507,7 +1142,7 @@ void TriangleMesh::join(TriangleMesh &mesh, double tolerance) {
 
     AABB bbox = _getMeshVertexIntersectionAABB(vertices, mesh.vertices, tolerance);
 
-    unsigned int indexOffset = vertices.size();
+    unsigned int indexOffset = (unsigned int)vertices.size();
     append(mesh);
 
     std::vector<int> verts1;

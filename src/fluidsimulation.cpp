@@ -21,26 +21,24 @@ freely, subject to the following restrictions:
 
 
 FluidSimulation::FluidSimulation() {
+    _initializeLogFile();
 }
 
 FluidSimulation::FluidSimulation(int isize, int jsize, int ksize, double dx) :
-                                _isize(isize), _jsize(jsize), _ksize(ksize), _dx(dx),
-                                _materialGrid(_isize, _jsize, _ksize),
-                                _addedFluidCellQueue(_isize, _jsize, _ksize),
-                                _fluidCellIndices(_isize, _jsize, _ksize),
-                                _levelset(_isize, _jsize, _ksize, _dx),
-                                _MACVelocity(_isize, _jsize, _ksize, _dx) {
+                                _isize(isize), _jsize(jsize), _ksize(ksize), _dx(dx)
+{
+    _initializeLogFile();
+    _initializeSimulationGrids(_isize, _jsize, _ksize, _dx);
+    _initializeSimulationVectors(_isize, _jsize, _ksize);
 }
 
 FluidSimulation::FluidSimulation(FluidSimulationSaveState &state) {
+    _initializeLogFile();
     FLUIDSIM_ASSERT(state.isLoadStateInitialized());
     _initializeSimulationFromSaveState(state);
 }
 
 FluidSimulation::~FluidSimulation() {
-    for (unsigned int i = 0; i < _fluidSources.size(); i++) {
-        delete _fluidSources[i];
-    }
 }
 
 /*******************************************************************************
@@ -49,11 +47,19 @@ FluidSimulation::~FluidSimulation() {
 
 void FluidSimulation::initialize() {
     if (!_isSimulationInitialized) {
+        _logfile.log(std::ostringstream().flush() << 
+                     _logfile.getTime() << " initialize" << std::endl);
         _initializeSimulation();
     }
 }
 
+bool FluidSimulation::isInitialized() {
+    return _isSimulationInitialized;
+}
+
 void FluidSimulation::saveState(std::string filename) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " saveState: " << filename << std::endl);
     FluidSimulationSaveState state;
     state.saveState(filename, this);
 }
@@ -72,6 +78,18 @@ double FluidSimulation::getCellSize() {
 
 void FluidSimulation::getGridDimensions(int *i, int *j, int *k) { 
     *i = _isize; *j = _jsize; *k = _ksize; 
+}
+
+int FluidSimulation::getGridWidth() {
+    return _isize;
+}
+
+int FluidSimulation::getGridHeight() {
+    return _jsize;
+}
+
+int FluidSimulation::getGridDepth() {
+    return _ksize;
 }
 
 void FluidSimulation::getSimulationDimensions(double *w, double *h, double *d) { 
@@ -103,6 +121,9 @@ void FluidSimulation::setDensity(double p) {
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setDensity: " << p << std::endl);
+
     _density = p; 
 }
 
@@ -127,6 +148,9 @@ void FluidSimulation::setMarkerParticleScale(double s) {
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setMarkerParticleScale: " << s << std::endl);
+
     _markerParticleScale = s; 
 }
 
@@ -134,6 +158,9 @@ double FluidSimulation::getMarkerParticleScale() {
     return _markerParticleScale;
 }
 
+int FluidSimulation::getSurfaceSubdivisionLevel() {
+    return _outputFluidSurfaceSubdivisionLevel;
+}
 
 void FluidSimulation::setSurfaceSubdivisionLevel(int n) {
     if (n < 1) {
@@ -142,34 +169,87 @@ void FluidSimulation::setSurfaceSubdivisionLevel(int n) {
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setSurfaceSubdivisionLevel: " << n << std::endl);
+
     _outputFluidSurfaceSubdivisionLevel = n;
 }
 
-void FluidSimulation::setNumSurfaceReconstructionPolygonizerSlices(int n) {
+int FluidSimulation::getNumPolygonizerSlices() {
+    return _numSurfaceReconstructionPolygonizerSlices;
+}
+
+void FluidSimulation::setNumPolygonizerSlices(int n) {
     if (n < 1) {
         std::string msg = "Error: number of polygonizer slices must be greater than or equal to 1.\n";
         msg += "polygonizer slices: " + _toString(n) + "\n";
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setNumPolygonizerSlices: " << n << std::endl);
+
     _numSurfaceReconstructionPolygonizerSlices = n;
 }
 
-void FluidSimulation::setMinimumPolyhedronTriangleCount(int n) {
-    if (n < 1) {
+int FluidSimulation::getMinPolyhedronTriangleCount() {
+    return _minimumSurfacePolyhedronTriangleCount;
+}
+
+void FluidSimulation::setMinPolyhedronTriangleCount(int n) {
+    if (n < 0) {
         std::string msg = "Error: minimum polyhedron triangle count must be greater than or equal to 0.\n";
         msg += "triangle count: " + _toString(n) + "\n";
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setMinPolyhedronTriangleCount: " << n << std::endl);
+
     _minimumSurfacePolyhedronTriangleCount = n;
 }
 
+void FluidSimulation::setDomainOffset(double x, double y, double z) {
+    setDomainOffset(vmath::vec3(x, y, z));
+}
+
+void FluidSimulation::setDomainOffset(vmath::vec3 offset) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setDomainOffset: " << 
+                 offset.x << " " << offset.y << " " << offset.z << std::endl);
+
+    _domainOffset = offset;
+}
+
+vmath::vec3 FluidSimulation::getDomainOffset() {
+    return _domainOffset;
+}
+
+void FluidSimulation::setMeshOutputFormatAsPLY() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setMeshOutputFormatAsPLY" << std::endl);
+
+    _meshOutputFormat = TriangleMeshFormat::ply;
+}
+
+void FluidSimulation::setMeshOutputFormatAsBOBJ() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setMeshOutputFormatAsBOBJ" << std::endl);
+
+    _meshOutputFormat = TriangleMeshFormat::bobj;
+}
+
 void FluidSimulation::enableSurfaceMeshOutput() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableSurfaceMeshOutput" << std::endl);
+
     _isSurfaceMeshOutputEnabled = true;
 }
 
 void FluidSimulation::disableSurfaceMeshOutput() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableSurfaceMeshOutput" << std::endl);
+
     _isSurfaceMeshOutputEnabled = false;
 }
 
@@ -177,44 +257,79 @@ bool FluidSimulation::isSurfaceMeshOutputEnabled() {
     return _isSurfaceMeshOutputEnabled;
 }
 
-
 void FluidSimulation::enableIsotropicSurfaceReconstruction() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableIsotropicSurfaceReconstruction" << std::endl);
+
     _isIsotropicSurfaceMeshReconstructionEnabled = true;
 }
 
 void FluidSimulation::disableIsotropicSurfaceReconstruction() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableIsotropicSurfaceReconstruction" << std::endl);
+
     _isIsotropicSurfaceMeshReconstructionEnabled = false;
 }
 
-bool FluidSimulation::isIsotropicSurfaceReconstuctionEnabled() {
+bool FluidSimulation::isIsotropicSurfaceReconstructionEnabled() {
     return _isIsotropicSurfaceMeshReconstructionEnabled;
 }
 
+void FluidSimulation::enablePreviewMeshOutput(double cellsize) {
+    if (cellsize <= 0.0) {
+        std::string msg = "Error: cell size must be greater than 0.0.\n";
+        msg += "cellsize: " + _toString(cellsize) + "\n";
+        throw std::domain_error(msg);
+    }
+
+     _logfile.log(std::ostringstream().flush() << 
+             _logfile.getTime() << " enablePreviewMeshOutput: " << cellsize << std::endl);
+
+    _isPreviewSurfaceMeshEnabled = true;
+    _previewdx = cellsize;
+}
+
+void FluidSimulation::disablePreviewMeshOutput() {
+     _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disablePreviewMeshOutput" << std::endl);
+
+    _isPreviewSurfaceMeshEnabled = false;
+}
+
+bool FluidSimulation::isPreviewMeshOutputEnabled() {
+    return _isPreviewSurfaceMeshEnabled;
+}
 
 void FluidSimulation::enableAnisotropicSurfaceReconstruction() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableAnisotropicSurfaceReconstruction" << std::endl);
+
     _isAnisotropicSurfaceMeshReconstructionEnabled = true;
 }
 
 void FluidSimulation::disableAnisotropicSurfaceReconstruction() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableAnisotropicSurfaceReconstruction" << std::endl);
+
     _isAnisotropicSurfaceMeshReconstructionEnabled = false;
 }
 
-bool FluidSimulation::isAnisotropicSurfaceReconstuctionEnabled() {
+bool FluidSimulation::isAnisotropicSurfaceReconstructionEnabled() {
     return _isAnisotropicSurfaceMeshReconstructionEnabled;
 }
 
 void FluidSimulation::enableDiffuseMaterialOutput() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableDiffuseMaterialOutput" << std::endl);
+
     _isDiffuseMaterialOutputEnabled = true;
-    _isBubbleDiffuseMaterialEnabled = true;
-    _isSprayDiffuseMaterialEnabled = true;
-    _isFoamDiffuseMaterialEnabled = true;
 }
 
 void FluidSimulation::disableDiffuseMaterialOutput() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableDiffuseMaterialOutput" << std::endl);
+
     _isDiffuseMaterialOutputEnabled = false;
-    _isBubbleDiffuseMaterialEnabled = false;
-    _isSprayDiffuseMaterialEnabled = false;
-    _isFoamDiffuseMaterialEnabled = false;
 }
 
 bool FluidSimulation::isDiffuseMaterialOutputEnabled() {
@@ -222,29 +337,47 @@ bool FluidSimulation::isDiffuseMaterialOutputEnabled() {
 }
 
 void FluidSimulation::enableBubbleDiffuseMaterial() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableBubbleDiffuseMaterial" << std::endl);
+
     _isBubbleDiffuseMaterialEnabled = true;
     _isDiffuseMaterialOutputEnabled = true;
 }
 
 void FluidSimulation::enableSprayDiffuseMaterial() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableSprayDiffuseMaterial" << std::endl);
+
     _isSprayDiffuseMaterialEnabled = true;
     _isDiffuseMaterialOutputEnabled = true;
 }
 
 void FluidSimulation::enableFoamDiffuseMaterial() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableFoamDiffuseMaterial" << std::endl);
+
     _isFoamDiffuseMaterialEnabled = true;
     _isDiffuseMaterialOutputEnabled = true;
 }
 
 void FluidSimulation::disableBubbleDiffuseMaterial() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableBubbleDiffuseMaterial" << std::endl);
+
     _isBubbleDiffuseMaterialEnabled = false;
 }
 
 void FluidSimulation::disableSprayDiffuseMaterial() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableSprayDiffuseMaterial" << std::endl);
+
     _isSprayDiffuseMaterialEnabled = false;
 }
 
 void FluidSimulation::disableFoamDiffuseMaterial() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableFoamDiffuseMaterial" << std::endl);
+
     _isFoamDiffuseMaterialEnabled = false;
 }
 
@@ -261,11 +394,17 @@ bool FluidSimulation::isFoamDiffuseMaterialEnabled() {
 }
 
 void FluidSimulation::outputDiffuseMaterialAsSeparateFiles() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " outputDiffuseMaterialAsSeparateFiles" << std::endl);
+
     _isDiffuseMaterialOutputEnabled = true;
     _isDiffuseMaterialFilesSeparated = true;
 }
 
 void FluidSimulation::outputDiffuseMaterialAsSingleFile() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " outputDiffuseMaterialAsSingleFile" << std::endl);
+
     _isDiffuseMaterialOutputEnabled = true;
     _isDiffuseMaterialFilesSeparated = false;
 }
@@ -281,6 +420,9 @@ void FluidSimulation::setMaxNumDiffuseParticles(int n) {
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setMaxNumDiffuseParticles: " << n << std::endl);
+
     _diffuseMaterial.setMaxNumDiffuseParticles(n);
 }
 
@@ -294,6 +436,9 @@ void FluidSimulation::setMaxDiffuseParticleLifetime(double lifetime) {
         msg += "lifetime: " + _toString(lifetime) + "\n";
         throw std::domain_error(msg);
     }
+
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setMaxDiffuseParticleLifetime: " << lifetime << std::endl);
 
     _diffuseMaterial.setMaxDiffuseParticleLifetime(lifetime);
 }
@@ -309,6 +454,9 @@ void FluidSimulation::setDiffuseParticleWavecrestEmissionRate(double r) {
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setDiffuseParticleWavecrestEmissionRate: " << r << std::endl);
+
     _diffuseMaterial.setDiffuseParticleWavecrestEmissionRate(r);
 }
 
@@ -322,6 +470,9 @@ void FluidSimulation::setDiffuseParticleTurbulenceEmissionRate(double r) {
         msg += "rate: " + _toString(r) + "\n";
         throw std::domain_error(msg);
     }
+
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setDiffuseParticleTurbulenceEmissionRate: " << r << std::endl);
 
     _diffuseMaterial.setDiffuseParticleTurbulenceEmissionRate(r);
 }
@@ -338,6 +489,9 @@ void FluidSimulation::setDiffuseParticleEmissionRates(double r) {
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setDiffuseParticleEmissionRates: " << r << std::endl);
+
     _diffuseMaterial.setDiffuseParticleEmissionRates(r);
 }
 
@@ -350,6 +504,10 @@ void FluidSimulation::setDiffuseParticleEmissionRates(double rwc,
         throw std::domain_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " setDiffuseParticleEmissionRates: " << 
+                 rwc << " " << rt << std::endl);
+
     _diffuseMaterial.setDiffuseParticleEmissionRates(rwc, rt);
 }
 
@@ -361,6 +519,10 @@ void FluidSimulation::enableBrickOutput(double width, double height, double dept
                " depth: " + _toString(depth) + "\n";
         throw std::domain_error(msg);
     }
+
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableBrickOutput: " << 
+                 width << " " << height << " " << depth << std::endl);
 
     AABB brick = AABB(vmath::vec3(), width, height, depth);
 
@@ -379,6 +541,9 @@ void FluidSimulation::enableBrickOutput(AABB brickbbox) {
 }
 
 void FluidSimulation::disableBrickOutput() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableBrickOutput" << std::endl);
+
     _isBrickOutputEnabled = false;
 }
 
@@ -399,10 +564,16 @@ AABB FluidSimulation::getBrickAABB() {
 }
 
 void FluidSimulation::enableAutosave() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableAutosave" << std::endl);
+
     _isAutosaveEnabled = true;
 }
 
 void FluidSimulation::disableAutosave() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableAutosave" << std::endl);
+
     _isAutosaveEnabled = false;
 }
 
@@ -410,19 +581,121 @@ bool FluidSimulation::isAutosaveEnabled() {
     return _isAutosaveEnabled;
 }
 
+void FluidSimulation::enableOpenCLParticleAdvection() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableOpenCLParticleAdvection" << std::endl);
+
+    _particleAdvector.enableOpenCL();
+}
+
+void FluidSimulation::disableOpenCLParticleAdvection() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableOpenCLParticleAdvection" << std::endl);
+
+    _particleAdvector.disableOpenCL();
+}
+
+bool FluidSimulation::isOpenCLParticleAdvectionEnabled() {
+    return _particleAdvector.isOpenCLEnabled();
+}
+
+void FluidSimulation::enableOpenCLScalarField() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " enableOpenCLScalarField" << std::endl);
+
+    _scalarFieldAccelerator.enableOpenCL();
+}
+
+void FluidSimulation::disableOpenCLScalarField() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " disableOpenCLScalarField" << std::endl);
+
+    _scalarFieldAccelerator.disableOpenCL();
+}
+
+bool FluidSimulation::isOpenCLScalarFieldEnabled() {
+    return _scalarFieldAccelerator.isOpenCLEnabled();
+}
+
+int FluidSimulation::getParticleAdvectionKernelWorkLoadSize() {
+    return _particleAdvector.getKernelWorkLoadSize();
+}
+
+void FluidSimulation::setParticleAdvectionKernelWorkLoadSize(int n) {
+    if (n < 1) {
+        std::string msg = "Error: work load size must be greater than or equal to 1.\n";
+        msg += "size: " + _toString(n) + "\n";
+        throw std::domain_error(msg);
+    }
+
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << 
+                 " setParticleAdvectionKernelWorkLoadSize: " << n << std::endl);
+
+    _particleAdvector.setKernelWorkLoadSize(n);
+}
+
+int FluidSimulation::getScalarFieldKernelWorkLoadSize() {
+    return _scalarFieldAccelerator.getKernelWorkLoadSize();
+}
+
+void FluidSimulation::setScalarFieldKernelWorkLoadSize(int n) {
+    if (n < 1) {
+        std::string msg = "Error: work load size must be greater than or equal to 1.\n";
+        msg += "size: " + _toString(n) + "\n";
+        throw std::domain_error(msg);
+    }
+
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << 
+                 " setScalarFieldKernelWorkLoadSize: " << n << std::endl);
+
+    _scalarFieldAccelerator.setKernelWorkLoadSize(n);
+}
+
 void FluidSimulation::addBodyForce(double fx, double fy, double fz) { 
     addBodyForce(vmath::vec3(fx, fy, fz)); 
 }
 
 void FluidSimulation::addBodyForce(vmath::vec3 f) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addBodyForce: " <<
+                 f.x << " " << f.y << " " << f.z << std::endl);
+
     _constantBodyForces.push_back(f);
 }
 
 void FluidSimulation::addBodyForce(vmath::vec3 (*fieldFunction)(vmath::vec3)) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addBodyForce: " << fieldFunction << std::endl);
+
     _variableBodyForces.push_back(fieldFunction);
 }
 
-void FluidSimulation::resetBodyForces() {
+vmath::vec3 FluidSimulation::getConstantBodyForce() {
+    return _getConstantBodyForce();
+}
+
+vmath::vec3 FluidSimulation::getVariableBodyForce(double px, double py, double pz) {
+    return _getVariableBodyForce(px, py, pz);
+}
+
+vmath::vec3 FluidSimulation::getVariableBodyForce(vmath::vec3 p) {
+    return getVariableBodyForce(p.x, p.y, p.z);
+}
+
+vmath::vec3 FluidSimulation::getTotalBodyForce(double px, double py, double pz) {
+    return getConstantBodyForce() + getVariableBodyForce(px, py, pz);
+}
+
+vmath::vec3 FluidSimulation::getTotalBodyForce(vmath::vec3 p) {
+    return getTotalBodyForce(p.y, p.y, p.z);
+}
+
+void FluidSimulation::resetBodyForce() {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " resetBodyForce" << std::endl);
+
     _constantBodyForces.clear();
     _variableBodyForces.clear();
 }
@@ -442,6 +715,10 @@ void FluidSimulation::addImplicitFluidPoint(vmath::vec3 p, double r) {
         std::string msg = "Error: implicit fluid point must be added before before simulation is initialized.\n";
         throw std::runtime_error(msg);
     }
+
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addImplicitFluidPoint: " << 
+                 p.x << " " << p.y << " " << p.z << " " << r << std::endl);
 
     _fluidPoints.push_back(FluidPoint(p, r));
 }
@@ -480,57 +757,47 @@ void FluidSimulation::addFluidCuboid(vmath::vec3 p, double w, double h, double d
         throw std::runtime_error(msg);
     }
 
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addFluidCuboid: " << 
+                 p.x << " " << p.y << " " << p.z << " " << w << " " << h << " " << d << std::endl);
+
     _fluidCuboids.push_back(FluidCuboid(p, w, h, d));
 }
 
-
-SphericalFluidSource* FluidSimulation::addSphericalFluidSource(vmath::vec3 pos, double r) {
-    return addSphericalFluidSource(pos, r, vmath::vec3());
-}
-
-SphericalFluidSource* FluidSimulation::addSphericalFluidSource(vmath::vec3 pos, double r, 
-                                                               vmath::vec3 velocity) {
-    if (r < 0.0) {
-        std::string msg = "Error: spherical fluid source radius must be greater than or equal to 0.\n";
-        msg += "radius: " + _toString(r) + "\n";
-        throw std::domain_error(msg);
+void FluidSimulation::addSphericalFluidSource(SphericalFluidSource *source) {
+    for (unsigned int i = 0; i < _sphericalFluidSources.size(); i++) {
+        if (source->getID() == _sphericalFluidSources[i]->getID()) {
+            std::string msg = "Error: Fluid source has already been added.\n";
+            throw std::runtime_error(msg);
+        }
     }
 
-    SphericalFluidSource *source = new SphericalFluidSource(pos, r, velocity);
-    source->setID(_getUniqueFluidSourceID());
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addSphericalFluidSource: " << source << std::endl);
 
     _fluidSources.push_back(source);
     _sphericalFluidSources.push_back(source);
-    return source;
 }
 
-CuboidFluidSource* FluidSimulation::addCuboidFluidSource(AABB bbox) {
-    return addCuboidFluidSource(bbox, vmath::vec3());
-}
-
-CuboidFluidSource* FluidSimulation::addCuboidFluidSource(AABB bbox, vmath::vec3 velocity) {
-    bool isValidDimensions = bbox.width >= 0.0 && bbox.height >= 0.0 && bbox.depth >= 0.0;
-    if (!isValidDimensions) {
-        std::string msg = "Error: cuboid fluid source dimensions must be greater than or equal to 0.\n";
-        msg += "width: " + _toString(bbox.width) + 
-               " height: " + _toString(bbox.height) + 
-               " depth: " + _toString(bbox.depth) + "\n";
-        throw std::domain_error(msg);
+void FluidSimulation::addCuboidFluidSource(CuboidFluidSource *source) {
+    for (unsigned int i = 0; i < _cuboidFluidSources.size(); i++) {
+        if (source->getID() == _cuboidFluidSources[i]->getID()) {
+            std::string msg = "Error: Fluid source has already been added.\n";
+            throw std::runtime_error(msg);
+        }
     }
 
-    CuboidFluidSource *source = new CuboidFluidSource(bbox, velocity);
-    source->setID(_getUniqueFluidSourceID());
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addCuboidFluidSource: " << source << std::endl);
 
     _fluidSources.push_back(source);
     _cuboidFluidSources.push_back(source);
-    return source;
 }
 
 void FluidSimulation::removeFluidSource(FluidSource *source) {
     bool isFound = false;
     for (unsigned int i = 0; i < _fluidSources.size(); i++) {
         if (source->getID() == _fluidSources[i]->getID()) {
-            delete _fluidSources[i];
             _fluidSources.erase(_fluidSources.begin() + i);
             isFound = true;
             break;
@@ -542,6 +809,9 @@ void FluidSimulation::removeFluidSource(FluidSource *source) {
         msg += "fluid source: " + _toString(source) + "\n";
         throw std::invalid_argument(msg);
     }
+
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " removeFluidSource: " << source << std::endl);
 
     isFound = false;
     for (unsigned int i = 0; i < _sphericalFluidSources.size(); i++) {
@@ -564,106 +834,108 @@ void FluidSimulation::removeFluidSource(FluidSource *source) {
 }
 
 void FluidSimulation::removeFluidSources() {
-    for (unsigned int i = 0; i < _fluidSources.size(); i++) {
-        delete _fluidSources[i];
-    }
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " removeFluidSources" << std::endl);
+
     _fluidSources.clear();
     _sphericalFluidSources.clear();
     _cuboidFluidSources.clear();
 }
 
-void FluidSimulation::addSolidCell(int i, int j, int k) {
-    if (!Grid3d::isGridIndexInRange(i, j, k, _isize, _jsize, _ksize)) {
-        std::string msg = "Error: solid cell index out of range.\n";
-        msg += "i: " + _toString(i) + " j: " + _toString(j) + " k: " + _toString(k) + "\n";
-        throw std::out_of_range(msg);
-    }
-
-    _materialGrid.setSolid(i, j, k);
-}
-
-void FluidSimulation::addSolidCell(GridIndex g) {
-    addSolidCell(g.i, g.j, g.k);
-}
-
 void FluidSimulation::addSolidCells(std::vector<GridIndex> &indices) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addSolidCells: " << indices.size() << std::endl);
+
+    GridIndex g;
     for (unsigned int i = 0; i < indices.size(); i++) {
-        addSolidCell(indices[i]);
-    }
-}
+        g = indices[i];
+        if (!Grid3d::isGridIndexInRange(g, _isize, _jsize, _ksize)) {
+            std::string msg = "Error: solid cell index out of range.\n";
+            msg += "i: " + _toString(g.i) + " j: " + _toString(g.j) + " k: " + _toString(g.k) + "\n";
+            throw std::out_of_range(msg);
+        }
 
-void FluidSimulation::removeSolidCell(int i, int j, int k) {
-    if (!Grid3d::isGridIndexInRange(i, j, k, _isize, _jsize, _ksize)) {
-        std::string msg = "Error: solid cell index out of range.\n";
-        msg += "i: " + _toString(i) + " j: " + _toString(j) + " k: " + _toString(k) + "\n";
-        throw std::out_of_range(msg);
-    }
 
-    // Cannot remove border cells
-    if (Grid3d::isGridIndexOnBorder(i, j, k, _isize, _jsize, _ksize)) { 
-        return; 
-    }
-
-    if (_materialGrid.isCellSolid(i, j, k)) {
-        _materialGrid.setAir(i, j, k);
+        _materialGrid.setSolid(g);
     }
 }
 
 void FluidSimulation::removeSolidCells(std::vector<GridIndex> &indices) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " removeSolidCells: " << indices.size() << std::endl);
+
+    GridIndex g;
     for (unsigned int i = 0; i < indices.size(); i++) {
-        removeSolidCell(indices[i].i, indices[i].j, indices[i].k);
+        g = indices[i];
+        if (!Grid3d::isGridIndexInRange(g, _isize, _jsize, _ksize)) {
+            std::string msg = "Error: solid cell index out of range.\n";
+            msg += "i: " + _toString(g.i) + " j: " + _toString(g.j) + " k: " + _toString(g.k) + "\n";
+            throw std::out_of_range(msg);
+        }
+
+        // Cannot remove border cells
+        if (Grid3d::isGridIndexOnBorder(g, _isize, _jsize, _ksize)) { 
+            continue; 
+        }
+
+        if (_materialGrid.isCellSolid(g)) {
+            _materialGrid.setAir(g);
+        }
     }
 }
 
-std::vector<GridIndex> FluidSimulation::getSolidCells() {
-    std::vector<GridIndex> indices;
-    for (int k = 1; k < _materialGrid.depth - 1; k++) {
-        for (int j = 1; j < _materialGrid.height - 1; j++) {
-            for (int i = 1; i < _materialGrid.width - 1; i++) {
-                if (_materialGrid.isCellSolid(i, j, k)) {
-                    indices.push_back(GridIndex(i, j, k));
-                }
-            }
+void FluidSimulation::addFluidCells(std::vector<GridIndex> &indices, vmath::vec3 velocity) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " addFluidCells: " << indices.size() << std::endl);
+
+    GridCellGroup group(_isize, _jsize, _ksize, velocity);
+    GridIndex g;
+    for (unsigned int i = 0; i < indices.size(); i++) {
+        g = indices[i];
+        if (!Grid3d::isGridIndexInRange(g, _isize, _jsize, _ksize)) {
+            std::string msg = "Error: fluid cell index out of range.\n";
+            msg += "i: " + _toString(g.i) + " j: " + _toString(g.j) + " k: " + _toString(g.k) + "\n";
+            throw std::out_of_range(msg);
+        }
+
+        if (_materialGrid.isCellAir(g)) {
+            group.indices.push_back(g);
         }
     }
 
-    return indices;
-}
-
-std::vector<vmath::vec3> FluidSimulation::getSolidCellPositions() {
-    std::vector<vmath::vec3> indices;
-    for (int k = 1; k < _materialGrid.depth - 1; k++) {
-        for (int j = 1; j < _materialGrid.height - 1; j++) {
-            for (int i = 1; i < _materialGrid.width - 1; i++) {
-                if (_materialGrid.isCellSolid(i, j, k)) {
-                    indices.push_back(Grid3d::GridIndexToPosition(i, j, k, _dx));
-                }
-            }
-        }
-    }
-
-    return indices;
-}
-
-void FluidSimulation::addFluidCell(int i, int j, int k) {
-    if (!Grid3d::isGridIndexInRange(i, j, k, _isize, _jsize, _ksize)) {
-        std::string msg = "Error: fluid cell index out of range.\n";
-        msg += "i: " + _toString(i) + " j: " + _toString(j) + " k: " + _toString(k) + "\n";
-        throw std::out_of_range(msg);
-    }
-
-    if (_materialGrid.isCellAir(i, j, k)) {
-        _addedFluidCellQueue.push_back(i, j, k);
+    if (!group.indices.empty()) {
+        _addedFluidCellQueue.push_back(group);
     }
 }
 
-void FluidSimulation::addFluidCell(GridIndex g) {
-    addFluidCell(g.i, g.j, g.k);
+void FluidSimulation::addFluidCells(std::vector<GridIndex> &indices, 
+                       double vx, double vy, double vz) {
+    addFluidCells(indices, vmath::vec3(vx, vy, vz));
 }
 
-void FluidSimulation::addFluidCells(GridIndexVector &indices) {
+void FluidSimulation::addFluidCells(std::vector<GridIndex> &indices) {
+    addFluidCells(indices, vmath::vec3(0.0, 0.0, 0.0));
+}
+
+void FluidSimulation::removeFluidCells(std::vector<GridIndex> &indices) {
+    _logfile.log(std::ostringstream().flush() << 
+                 _logfile.getTime() << " removeFluidCells: " << indices.size() << std::endl);
+
+    GridCellGroup group(_isize, _jsize, _ksize);
+    GridIndex g;
     for (unsigned int i = 0; i < indices.size(); i++) {
-        addFluidCell(indices[i]);
+        g = indices[i];
+        if (!Grid3d::isGridIndexInRange(g, _isize, _jsize, _ksize)) {
+            std::string msg = "Error: fluid cell index out of range.\n";
+            msg += "i: " + _toString(g.i) + " j: " + _toString(g.j) + " k: " + _toString(g.k) + "\n";
+            throw std::out_of_range(msg);
+        }
+
+        group.indices.push_back(g);
+    }
+
+    if (!group.indices.empty()) {
+        _removedFluidCellQueue.push_back(group);
     }
 }
 
@@ -671,29 +943,44 @@ unsigned int FluidSimulation::getNumMarkerParticles() {
     return _markerParticles.size();
 }
 
-void FluidSimulation::getMarkerParticles(std::vector<MarkerParticle> &mps) {
-    mps.reserve(_markerParticles.size());
-    for (unsigned int i = 0; i < _markerParticles.size(); i++) {
-        mps.push_back(_markerParticles[i]);
+std::vector<MarkerParticle> FluidSimulation::getMarkerParticles() {
+    return getMarkerParticles(0, _markerParticles.size());
+}
+
+std::vector<MarkerParticle> FluidSimulation::getMarkerParticles(int startidx, int endidx) {
+    int size = _markerParticles.size();
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
+        std::string msg = "Error: invalid index range.\n";
+        msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
+        throw std::out_of_range(msg);
     }
+
+    std::vector<MarkerParticle> particles;
+    particles.reserve(endidx - startidx);
+
+    for (int i = startidx; i < endidx; i++) {
+        particles.push_back(_markerParticles[i]);
+    }
+
+    return particles;
 }
 
 std::vector<vmath::vec3> FluidSimulation::getMarkerParticlePositions() {
-    return getMarkerParticlePositions(0, _markerParticles.size() - 1);
+    return getMarkerParticlePositions(0, _markerParticles.size());
 }
 
 std::vector<vmath::vec3> FluidSimulation::getMarkerParticlePositions(int startidx, int endidx) {
     int size = _markerParticles.size();
-    if (!(startidx >= 0 && startidx < size) || !(endidx >= 0 && endidx < size)) {
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
         std::string msg = "Error: invalid index range.\n";
         msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
         throw std::out_of_range(msg);
     }
 
     std::vector<vmath::vec3> particles;
-    particles.reserve(endidx - startidx + 1);
+    particles.reserve(endidx - startidx);
 
-    for (int i = startidx; i <= endidx; i++) {
+    for (int i = startidx; i < endidx; i++) {
         particles.push_back(_markerParticles[i].position);
     }
 
@@ -701,21 +988,21 @@ std::vector<vmath::vec3> FluidSimulation::getMarkerParticlePositions(int startid
 }
 
 std::vector<vmath::vec3> FluidSimulation::getMarkerParticleVelocities() {
-    return getMarkerParticleVelocities(0, _markerParticles.size() - 1);
+    return getMarkerParticleVelocities(0, _markerParticles.size());
 }
 
 std::vector<vmath::vec3> FluidSimulation::getMarkerParticleVelocities(int startidx, int endidx) {
     int size = _markerParticles.size();
-    if (!(startidx >= 0 && startidx < size) || !(endidx >= 0 && endidx < size)) {
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
         std::string msg = "Error: invalid index range.\n";
         msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
         throw std::out_of_range(msg);
     }
 
     std::vector<vmath::vec3> velocities;
-    velocities.reserve(endidx - startidx + 1);
+    velocities.reserve(endidx - startidx);
 
-    for (int i = startidx; i <= endidx; i++) {
+    for (int i = startidx; i < endidx; i++) {
         velocities.push_back(_markerParticles[i].velocity);
     }
 
@@ -726,24 +1013,47 @@ unsigned int FluidSimulation::getNumDiffuseParticles() {
     return _diffuseMaterial.getNumDiffuseParticles();
 }
 
+std::vector<DiffuseParticle> FluidSimulation::getDiffuseParticles() {
+    return getDiffuseParticles(0, _markerParticles.size());
+}
+
+std::vector<DiffuseParticle> FluidSimulation::getDiffuseParticles(int startidx, int endidx) {
+    int size = getNumDiffuseParticles();
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
+        std::string msg = "Error: invalid index range.\n";
+        msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
+        throw std::out_of_range(msg);
+    }
+
+    std::vector<DiffuseParticle> particles;
+    particles.reserve(endidx - startidx);
+
+    FragmentedVector<DiffuseParticle> *dps = _diffuseMaterial.getDiffuseParticles();
+    for (int i = startidx; i < endidx; i++) {
+        particles.push_back(dps->at(i));
+    }
+
+    return particles;
+}
+
 std::vector<vmath::vec3> FluidSimulation::getDiffuseParticlePositions() {
     int size = getNumDiffuseParticles();
-    return getDiffuseParticlePositions(0, size - 1);
+    return getDiffuseParticlePositions(0, size);
 }
 
 std::vector<vmath::vec3> FluidSimulation::getDiffuseParticlePositions(int startidx, int endidx) {
     int size = getNumDiffuseParticles();
-    if (!(startidx >= 0 && startidx < size) || !(endidx >= 0 && endidx < size)) {
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
         std::string msg = "Error: invalid index range.\n";
         msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
         throw std::out_of_range(msg);
     }
 
     std::vector<vmath::vec3> particles;
-    particles.reserve(endidx - startidx + 1);
+    particles.reserve(endidx - startidx);
 
     FragmentedVector<DiffuseParticle> *dps = _diffuseMaterial.getDiffuseParticles();
-    for (int i = startidx; i <= endidx; i++) {
+    for (int i = startidx; i < endidx; i++) {
         particles.push_back(dps->at(i).position);
     }
 
@@ -752,22 +1062,22 @@ std::vector<vmath::vec3> FluidSimulation::getDiffuseParticlePositions(int starti
 
 std::vector<vmath::vec3> FluidSimulation::getDiffuseParticleVelocities() {
     int size = getNumDiffuseParticles();
-    return getDiffuseParticleVelocities(0, size - 1);
+    return getDiffuseParticleVelocities(0, size);
 }
 
 std::vector<vmath::vec3> FluidSimulation::getDiffuseParticleVelocities(int startidx, int endidx) {
     int size = getNumDiffuseParticles();
-    if (!(startidx >= 0 && startidx < size) || !(endidx >= 0 && endidx < size)) {
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
         std::string msg = "Error: invalid index range.\n";
         msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
         throw std::out_of_range(msg);
     }
 
     std::vector<vmath::vec3> velocities;
-    velocities.reserve(endidx - startidx + 1);
+    velocities.reserve(endidx - startidx);
 
     FragmentedVector<DiffuseParticle> *dps = _diffuseMaterial.getDiffuseParticles();
-    for (int i = startidx; i <= endidx; i++) {
+    for (int i = startidx; i < endidx; i++) {
         velocities.push_back(dps->at(i).velocity);
     }
 
@@ -776,22 +1086,22 @@ std::vector<vmath::vec3> FluidSimulation::getDiffuseParticleVelocities(int start
 
 std::vector<float> FluidSimulation::getDiffuseParticleLifetimes() {
     int size = getNumDiffuseParticles();
-    return getDiffuseParticleLifetimes(0, size - 1);
+    return getDiffuseParticleLifetimes(0, size);
 }
 
 std::vector<float> FluidSimulation::getDiffuseParticleLifetimes(int startidx, int endidx) {
     int size = getNumDiffuseParticles();
-    if (!(startidx >= 0 && startidx < size) || !(endidx >= 0 && endidx < size)) {
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
         std::string msg = "Error: invalid index range.\n";
         msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
         throw std::out_of_range(msg);
     }
 
     std::vector<float> lifetimes;
-    lifetimes.reserve(endidx - startidx + 1);
+    lifetimes.reserve(endidx - startidx);
 
     FragmentedVector<DiffuseParticle> *dps = _diffuseMaterial.getDiffuseParticles();
-    for (int i = startidx; i <= endidx; i++) {
+    for (int i = startidx; i < endidx; i++) {
         lifetimes.push_back(dps->at(i).lifetime);
     }
 
@@ -800,35 +1110,26 @@ std::vector<float> FluidSimulation::getDiffuseParticleLifetimes(int startidx, in
 
 std::vector<char> FluidSimulation::getDiffuseParticleTypes() {
     int size = getNumDiffuseParticles();
-    return getDiffuseParticleTypes(0, size - 1);
+    return getDiffuseParticleTypes(0, size);
 }
 
 std::vector<char> FluidSimulation::getDiffuseParticleTypes(int startidx, int endidx) {
     int size = getNumDiffuseParticles();
-    if (!(startidx >= 0 && startidx < size) || !(endidx >= 0 && endidx < size)) {
+    if (!(startidx >= 0 && startidx <= size) || !(endidx >= 0 && endidx <= size)) {
         std::string msg = "Error: invalid index range.\n";
         msg += "start index: " + _toString(startidx) + " end index: " + _toString(endidx) + "\n";
         throw std::out_of_range(msg);
     }
 
     std::vector<char> types;
-    types.reserve(endidx - startidx + 1);
+    types.reserve(endidx - startidx);
 
     FragmentedVector<DiffuseParticle> *dps = _diffuseMaterial.getDiffuseParticles();
-    for (int i = startidx; i <= endidx; i++) {
+    for (int i = startidx; i < endidx; i++) {
         types.push_back((char)(dps->at(i).type));
     }
 
     return types;
-}
-
-void FluidSimulation::getDiffuseParticles(std::vector<DiffuseParticle> &particles) {
-    particles.reserve(getNumDiffuseParticles());
-
-    FragmentedVector<DiffuseParticle> *dps = _diffuseMaterial.getDiffuseParticles();
-    for (unsigned int i = 0; i < dps->size(); i++) {
-        particles.push_back(dps->at(i));
-    }
 }
 
 MACVelocityField* FluidSimulation::getVelocityField() { 
@@ -846,6 +1147,47 @@ FluidBrickGrid* FluidSimulation::getFluidBrickGrid() {
 /********************************************************************************
     Initializing the Fluid Simulator
 ********************************************************************************/
+void FluidSimulation::_initializeLogFile() {
+    _logfile.setPath(Config::getLogsDirectory());
+}
+
+void FluidSimulation::_initializeSimulationGrids(int isize, int jsize, int ksize, double dx) {
+    _logfile.separator();
+    _logfile.timestamp();
+    _logfile.newline();
+    _logfile.log(std::ostringstream().flush() << 
+                 "Initializing Simulation Grids:" << std::endl <<
+                 "\tGrid Dimensions: " << isize << " x " << 
+                                        jsize << " x " << 
+                                        ksize << std::endl <<
+                 "\tCell Size:       " << dx << std::endl);
+
+    StopWatch t;
+    t.start();
+    _MACVelocity = MACVelocityField(isize, jsize, ksize, dx);
+    t.stop();
+
+    _logfile.log("Constructing MACVelocityField: \t", t.getTime(), 4, 1);
+
+    t.reset();
+    t.start();
+    _materialGrid = FluidMaterialGrid(isize, jsize, ksize);
+    t.stop();
+
+    _logfile.log("Constructing FluidMaterialGrid:\t", t.getTime(), 4, 1);
+
+    t.reset();
+    t.start();
+    _levelset = LevelSet(isize, jsize, ksize, dx);
+    t.stop();
+
+    _logfile.log("Constructing LevelSet:         \t", t.getTime(), 4, 1);
+}
+
+void FluidSimulation::_initializeSimulationVectors(int isize, int jsize, int ksize) {
+    _fluidCellIndices = GridIndexVector(isize, jsize, ksize);
+}
+
 void FluidSimulation::_initializeSolidCells() {
     // fill borders with solid cells
     for (int j = 0; j < _jsize; j++) {
@@ -874,6 +1216,10 @@ void FluidSimulation::_addMarkerParticlesToCell(GridIndex g) {
     _addMarkerParticlesToCell(g, vmath::vec3());
 }
 
+double FluidSimulation::_getMarkerParticleJitter() {
+    return 0.25 * _markerParticleJitterFactor * _dx;
+}
+
 void FluidSimulation::_addMarkerParticlesToCell(GridIndex g, vmath::vec3 velocity) {
     double q = 0.25*_dx;
     vmath::vec3 c = Grid3d::GridIndexToCellCenter(g, _dx);
@@ -889,9 +1235,7 @@ void FluidSimulation::_addMarkerParticlesToCell(GridIndex g, vmath::vec3 velocit
         vmath::vec3(c.x - q, c.y + q, c.z + q)
     };
 
-    double eps = 10e-6;
-    double jitter = 0.25*_dx - eps;
-
+    double jitter = _getMarkerParticleJitter();
     for (int idx = 0; idx < 8; idx++) {
         vmath::vec3 jit = vmath::vec3(_randomDouble(-jitter, jitter),
                                   _randomDouble(-jitter, jitter),
@@ -936,42 +1280,64 @@ void FluidSimulation::_calculateInitialFluidSurfaceScalarField(ScalarField &fiel
 
 void FluidSimulation::_getInitialFluidCellsFromScalarField(ScalarField &field,
                                                            GridIndexVector &fluidCells) {
-    Polygonizer3d polygonizer(&field);
-
     field.setMaterialGrid(_materialGrid);
+    double threshold = field.getSurfaceThreshold();
 
-    _surfaceMesh = polygonizer.polygonizeSurface();
-    _surfaceMesh.setGridDimensions(_isize, _jsize, _ksize, _dx);
-
-    GridIndexVector insideCells(_isize, _jsize, _ksize);
-    _surfaceMesh.getCellsInsideMesh(insideCells);
-
-    fluidCells.clear();
-    fluidCells.reserve(insideCells.size());
-    for (unsigned int i = 0; i < insideCells.size(); i++) {
-        if (!_materialGrid.isCellSolid(insideCells[i])) {
-            fluidCells.push_back(insideCells[i]);
+    vmath::vec3 c;
+    for (int k = 0; k < _ksize; k++) {
+        for (int j = 0; j < _jsize; j++) {
+            for (int i = 0; i < _isize; i++) {
+                if (!_materialGrid.isCellSolid(i, j, k) &&
+                    field.getScalarFieldValueAtCellCenter(i, j, k) > threshold) {
+                    fluidCells.push_back(GridIndex(i, j, k));
+                }
+            }
         }
     }
 }
 
+void FluidSimulation::_getFullAndPartiallyFullFluidCells(GridIndexVector &fluidCells,
+                                                         GridIndexVector &fullFluidCells,
+                                                         GridIndexVector &partialFluidCells) {
+    FluidMaterialGrid mgrid = _materialGrid;
+    for (unsigned int i = 0; i < fluidCells.size(); i++) {
+        mgrid.setFluid(fluidCells[i]);
+    }
 
-void FluidSimulation::_getPartiallyFilledFluidCellParticles(GridIndexVector &partialFluidCells,
-                                                            ScalarField &field,
-                                                            std::vector<vmath::vec3> &partialParticles) {
-    FluidMaterialGrid submgrid(_isize, _jsize, _ksize);
     GridIndex g;
+    for (unsigned int i = 0; i < fluidCells.size(); i++) {
+        g = fluidCells[i];
+        if (mgrid.isCellNeighbouringAir(g)) {
+            partialFluidCells.push_back(g);
+        } else {
+            fullFluidCells.push_back(g);
+        }
+    }
+
+    for (int k = 0; k < mgrid.depth; k++) {
+        for (int j = 0; j < mgrid.height; j++) {
+            for (int i = 0; i < mgrid.width; i++) {
+                if (mgrid.isCellAir(i, j, k) &&
+                    mgrid.isCellNeighbouringFluid(i, j, k)) {
+                    partialFluidCells.push_back(i, j, k);
+                }
+            }
+        }
+    }
+}
+
+void FluidSimulation::_getPartiallyFullFluidCellParticles(GridIndexVector &partialFluidCells,
+                                                          ScalarField &field,
+                                                          std::vector<vmath::vec3> &partialParticles) {
+    FluidMaterialGrid submgrid(_isize, _jsize, _ksize);
     for (unsigned int i = 0; i < partialFluidCells.size(); i++) {
-        g = partialFluidCells[i];
-        submgrid.setFluid(g);
+        submgrid.setFluid(partialFluidCells[i]);
     }
     submgrid.setSubdivisionLevel(2);
-    double subdx = 0.5 * _dx;
+    double subdx = 0.5*_dx;
 
-    double eps = 10e-6;
-    double jitter = 0.25*_dx - eps;
+    double jitter = _getMarkerParticleJitter();
     vmath::vec3 jit;
-
     vmath::vec3 c;
     for (int k = 0; k < submgrid.depth; k++) {
         for (int j = 0; j < submgrid.height; j++) {
@@ -983,9 +1349,8 @@ void FluidSimulation::_getPartiallyFilledFluidCellParticles(GridIndexVector &par
                 c = Grid3d::GridIndexToCellCenter(i, j, k, subdx);
                 if (field.isPointInside(c)) {
                     jit = vmath::vec3(_randomDouble(-jitter, jitter),
-                              _randomDouble(-jitter, jitter),
-                              _randomDouble(-jitter, jitter));
-
+                                      _randomDouble(-jitter, jitter),
+                                      _randomDouble(-jitter, jitter));
                     partialParticles.push_back(c + jit);
                 }
             }
@@ -995,9 +1360,9 @@ void FluidSimulation::_getPartiallyFilledFluidCellParticles(GridIndexVector &par
 
 void FluidSimulation::_initializeMarkerParticles(GridIndexVector &fullFluidCells,
                                                  std::vector<vmath::vec3> &partialParticles) {
-    _markerParticles.reserve(8*fullFluidCells.size() + partialParticles.size());
+    _markerParticles.reserve((unsigned int)(8*fullFluidCells.size() + partialParticles.size()));
     GridIndex g;
-    for (unsigned int i = 0; i < fullFluidCells.size(); i++) {
+    for (int i = 0; i < (int)fullFluidCells.size(); i++) {
         g = fullFluidCells[i];
         _addMarkerParticlesToCell(g);
     }
@@ -1016,32 +1381,18 @@ void FluidSimulation::_initializeFluidCellIndices() {
 }
 
 void FluidSimulation::_initializeFluidMaterial() {
-
     ScalarField field = ScalarField(_isize + 1, _jsize + 1, _ksize + 1, _dx);
     _calculateInitialFluidSurfaceScalarField(field);
 
     GridIndexVector fluidCells(_isize, _jsize, _ksize);
     _getInitialFluidCellsFromScalarField(field, fluidCells);
 
-    FluidMaterialGrid mgrid(_isize, _jsize, _ksize);
-    for (unsigned int i = 0; i < fluidCells.size(); i++) {
-        mgrid.setFluid(fluidCells[i]);
-    }
-
     GridIndexVector fullFluidCells(_isize, _jsize, _ksize);
     GridIndexVector partialFluidCells(_isize, _jsize, _ksize);
-    GridIndex g;
-    for (unsigned int i = 0; i < fluidCells.size(); i++) {
-        g = fluidCells[i];
-        if (mgrid.isCellNeighbouringAir(g)) {
-            partialFluidCells.push_back(g);
-        } else {
-            fullFluidCells.push_back(g);
-        }
-    }
+    _getFullAndPartiallyFullFluidCells(fluidCells, fullFluidCells, partialFluidCells);
 
     std::vector<vmath::vec3> partialParticles;
-    _getPartiallyFilledFluidCellParticles(partialFluidCells, field, partialParticles);
+    _getPartiallyFullFluidCellParticles(partialFluidCells, field, partialParticles);
 
     _initializeMarkerParticles(fullFluidCells, partialParticles);
     _initializeFluidCellIndices();
@@ -1054,12 +1405,62 @@ void FluidSimulation::_initializeMarkerParticleRadius() {
 }
 
 void FluidSimulation::_initializeSimulation() {
+    _logfile.newline();
+    _logfile.log(std::ostringstream().flush() << 
+                 "Initializing Simulation:" << std::endl);
+
+    StopWatch t;
+    t.start();
     _initializeSolidCells();
+    t.stop();
+
+    _logfile.log("Initializing Solid Cells:    \t", t.getTime(), 4, 1);
+
+    t.reset();
+    t.start();
     _initializeFluidMaterial();
+    t.stop();
+
+    _logfile.log("Initializing Fluid Material: \t", t.getTime(), 4, 1);
+
     _initializeMarkerParticleRadius();
+
+    t.reset();
+    t.start();
     _initializeCLObjects();
+    t.stop();
+
+    _logfile.log("Initializing OpenCL Objects: \t", t.getTime(), 4, 1);
+    _logOpenCLInfo();
 
     _isSimulationInitialized = true;
+}
+
+void FluidSimulation::_logOpenCLInfo() {
+    _logfile.newline();
+    _logfile.separator();
+    _logfile.newline();
+    _logfile.log(std::ostringstream().flush() << 
+                 "OpenCL ParticleAdvector Device Info:" << std::endl);
+    std::string deviceInfo = _particleAdvector.getDeviceInfo();
+    _logfile.log(std::ostringstream().flush() << deviceInfo << std::endl);
+
+    _logfile.log(std::ostringstream().flush() << 
+                 "OpenCL ParticleAdvector Kernel Info:" << std::endl);
+    std::string kernelInfo = _particleAdvector.getKernelInfo();
+    _logfile.log(std::ostringstream().flush() << kernelInfo << std::endl);
+
+    _logfile.separator();
+    _logfile.newline();
+    _logfile.log(std::ostringstream().flush() << 
+                 "OpenCL CLScalarField Device Info:" << std::endl);
+    deviceInfo = _scalarFieldAccelerator.getDeviceInfo();
+    _logfile.log(std::ostringstream().flush() << deviceInfo << std::endl);
+
+    _logfile.log(std::ostringstream().flush() << 
+                 "OpenCL CLScalarField Kernel Info:" << std::endl);
+    kernelInfo = _scalarFieldAccelerator.getKernelInfo();
+    _logfile.log(std::ostringstream().flush() << kernelInfo << std::endl);
 }
 
 void FluidSimulation::_initializeFluidMaterialParticlesFromSaveState() {
@@ -1096,9 +1497,9 @@ void FluidSimulation::_initializeMarkerParticlesFromSaveState(
     std::vector<vmath::vec3> vectors;
     while (numRead < n) {
         int startidx = numRead;
-        int endidx = numRead + chunksize - 1;
-        if (endidx >= n) {
-            endidx = n - 1;
+        int endidx = numRead + chunksize;
+        if (endidx > n) {
+            endidx = n;
         }
 
         vectors = state.getMarkerParticlePositions(startidx, endidx);
@@ -1106,15 +1507,15 @@ void FluidSimulation::_initializeMarkerParticlesFromSaveState(
             _markerParticles.push_back(MarkerParticle(vectors[i]));
         }
 
-        numRead += vectors.size();
+        numRead += (int)vectors.size();
     }
 
     numRead = 0;
     while (numRead < n) {
         int startidx = numRead;
-        int endidx = numRead + chunksize - 1;
-        if (endidx >= n) {
-            endidx = n - 1;
+        int endidx = numRead + chunksize;
+        if (endidx > n) {
+            endidx = n;
         }
 
         vectors = state.getMarkerParticleVelocities(startidx, endidx);
@@ -1122,7 +1523,7 @@ void FluidSimulation::_initializeMarkerParticlesFromSaveState(
             _markerParticles[startidx + i].velocity = vectors[i];
         }
 
-        numRead += vectors.size();
+        numRead += (int)vectors.size();
     }
 
 }
@@ -1140,9 +1541,9 @@ void FluidSimulation::_initializeDiffuseParticlesFromSaveState(
     std::vector<vmath::vec3> vectors;
     while (numRead < n) {
         int startidx = numRead;
-        int endidx = numRead + chunksize - 1;
-        if (endidx >= n) {
-            endidx = n - 1;
+        int endidx = numRead + chunksize;
+        if (endidx > n) {
+            endidx = n;
         }
 
         vectors = state.getDiffuseParticlePositions(startidx, endidx);
@@ -1151,15 +1552,15 @@ void FluidSimulation::_initializeDiffuseParticlesFromSaveState(
             diffuseParticles[startidx + i].position = vectors[i];
         }
 
-        numRead += vectors.size();
+        numRead += (int)vectors.size();
     }
 
     numRead = 0;
     while (numRead < n) {
         int startidx = numRead;
-        int endidx = numRead + chunksize - 1;
-        if (endidx >= n) {
-            endidx = n - 1;
+        int endidx = numRead + chunksize;
+        if (endidx > n) {
+            endidx = n;
         }
 
         vectors = state.getDiffuseParticleVelocities(startidx, endidx);
@@ -1167,7 +1568,7 @@ void FluidSimulation::_initializeDiffuseParticlesFromSaveState(
             diffuseParticles[startidx + i].velocity = vectors[i];
         }
 
-        numRead += vectors.size();
+        numRead += (int)vectors.size();
     }
     vectors.clear();
     vectors.shrink_to_fit();
@@ -1176,9 +1577,9 @@ void FluidSimulation::_initializeDiffuseParticlesFromSaveState(
     std::vector<float> lifetimes;
     while (numRead < n) {
         int startidx = numRead;
-        int endidx = numRead + chunksize - 1;
-        if (endidx >= n) {
-            endidx = n - 1;
+        int endidx = numRead + chunksize;
+        if (endidx > n) {
+            endidx = n;
         }
 
         lifetimes = state.getDiffuseParticleLifetimes(startidx, endidx);
@@ -1186,16 +1587,16 @@ void FluidSimulation::_initializeDiffuseParticlesFromSaveState(
             diffuseParticles[startidx + i].lifetime = lifetimes[i];
         }
 
-        numRead += lifetimes.size();
+        numRead += (int)lifetimes.size();
     }
 
     numRead = 0;
     std::vector<char> types;
     while (numRead < n) {
         int startidx = numRead;
-        int endidx = numRead + chunksize - 1;
-        if (endidx >= n) {
-            endidx = n - 1;
+        int endidx = numRead + chunksize;
+        if (endidx > n) {
+            endidx = n;
         }
 
         types = state.getDiffuseParticleTypes(startidx, endidx);
@@ -1203,7 +1604,7 @@ void FluidSimulation::_initializeDiffuseParticlesFromSaveState(
             diffuseParticles[startidx + i].type = (DiffuseParticleType)types[i];
         }
 
-        numRead += types.size();
+        numRead += (int)types.size();
     }
 
     _diffuseMaterial.setDiffuseParticles(diffuseParticles);
@@ -1217,17 +1618,14 @@ void FluidSimulation::_initializeSolidCellsFromSaveState(FluidSimulationSaveStat
     std::vector<GridIndex> indices;
     while (numRead < n) {
         int startidx = numRead;
-        int endidx = numRead + chunksize - 1;
-        if (endidx >= n) {
-            endidx = n - 1;
+        int endidx = numRead + chunksize;
+        if (endidx > n) {
+            endidx = n;
         }
 
         indices = state.getSolidCells(startidx, endidx);
-        for (unsigned int i = 0; i < indices.size(); i++) {
-            addSolidCell(indices[i]);
-        }
-
-        numRead += indices.size();
+        addSolidCells(indices);
+        numRead += (int)indices.size();
     }
 }
 
@@ -1240,26 +1638,66 @@ void FluidSimulation::_initializeFluidBrickGridFromSaveState(FluidSimulationSave
 void FluidSimulation::_initializeSimulationFromSaveState(FluidSimulationSaveState &state) {
     state.getGridDimensions(&_isize, &_jsize, &_ksize);
     _dx = state.getCellSize();
+    _initializeSimulationGrids(_isize, _jsize, _ksize, _dx);
+    _initializeSimulationVectors(_isize, _jsize, _ksize);
+
+    _logfile.newline();
+    _logfile.log(std::ostringstream().flush() << 
+                 "Initializing Simulation From Savestate:" << std::endl);
+
     _currentFrame = state.getCurrentFrame();
     _currentBrickMeshFrame = fmax(_currentFrame + _brickMeshFrameOffset, 0);
 
-    _MACVelocity = MACVelocityField(_isize, _jsize, _ksize, _dx);
-    _materialGrid = FluidMaterialGrid(_isize, _jsize, _ksize);
-    _levelset = LevelSet(_isize, _jsize, _ksize, _dx);
-    _fluidCellIndices = GridIndexVector(_isize, _jsize, _ksize);
-    _addedFluidCellQueue = GridIndexVector(_isize, _jsize, _ksize);
+    _logfile.log(std::ostringstream().flush() << 
+                 "\tCurrentFrame: " << _currentFrame << std::endl);
 
+    StopWatch t;
+    t.start();
     _initializeSolidCellsFromSaveState(state);
+    t.stop();
+
+    _logfile.log("Loading Solid Cells:         \t", t.getTime(), 4, 1);
+    
+    t.reset();
+    t.start();
     _initializeMarkerParticlesFromSaveState(state);
+    t.stop();
+
+    _logfile.log("Loading Marker Particles:    \t", t.getTime(), 4, 1);
+
+    t.reset();
+    t.start();
     _initializeDiffuseParticlesFromSaveState(state);
+    t.stop();
+
+    _logfile.log("Loading Diffuse Particles:   \t", t.getTime(), 4, 1);
+
+    t.reset();
+    t.start();
     _initializeFluidMaterialParticlesFromSaveState();
+    t.stop();
+
+    _logfile.log("Initializing Fluid Material: \t", t.getTime(), 4, 1);
+
     _initializeMarkerParticleRadius();
 
     if (state.isFluidBrickGridEnabled()) {
+        t.reset();
+        t.start();
         _initializeFluidBrickGridFromSaveState(state);
+        t.stop();
+
+        _logfile.log("Loading Brick Grid:          \t", t.getTime(), 4, 1);
     }
 
+    t.reset();
+    t.start();
     _initializeCLObjects();
+    t.stop();
+
+    _logfile.log("Initializing OpenCL Objects: \t", t.getTime(), 4, 1);
+
+    _logOpenCLInfo();
 
     _isSimulationInitialized = true;
 }
@@ -1275,12 +1713,6 @@ void FluidSimulation::_initializeCLObjects() {
 /********************************************************************************
     1. Update Fluid Material
 ********************************************************************************/
-
-int FluidSimulation::_getUniqueFluidSourceID() {
-    int id = _uniqueFluidSourceID;
-    _uniqueFluidSourceID++;
-    return id;
-}
 
 void FluidSimulation::_removeMarkerParticlesFromCells(Array3d<bool> &isRemovalCell) {
     std::vector<bool> isRemoved;
@@ -1317,8 +1749,8 @@ void FluidSimulation::_removeDiffuseParticlesFromCells(Array3d<bool> &isRemovalC
 void FluidSimulation::_addNewFluidCells(GridIndexVector &cells, 
                                         vmath::vec3 velocity) {
 
-    _markerParticles.reserve(_markerParticles.size() + 8*cells.size());
-    for (unsigned int i = 0; i < cells.size(); i++) {
+    _markerParticles.reserve((unsigned int)(_markerParticles.size() + 8*cells.size()));
+    for (int i = 0; i < (int)cells.size(); i++) {
         if (_materialGrid.isCellAir(cells[i])) {
             _addMarkerParticlesToCell(cells[i], velocity);
             _materialGrid.setFluid(cells[i]);
@@ -1327,7 +1759,7 @@ void FluidSimulation::_addNewFluidCells(GridIndexVector &cells,
 }
 
 void FluidSimulation::_addNewFluidParticles(std::vector<vmath::vec3> &particles, vmath::vec3 velocity) {
-    _markerParticles.reserve(_markerParticles.size() + particles.size());
+    _markerParticles.reserve((unsigned int)(_markerParticles.size() + particles.size()));
     GridIndex g;
     for (unsigned int i = 0; i < particles.size(); i++) {
         g = Grid3d::positionToGridIndex(particles[i], _dx);
@@ -1347,7 +1779,7 @@ void FluidSimulation::_getNewFluidParticles(FluidSource *source, std::vector<vma
     int kdepth = gmax.k - gmin.k + 1;
     
     Array3d<bool> isInvalidCell = Array3d<bool>(iwidth, jheight, kdepth, true);
-    GridIndexVector sourceCells = source->getCells(_materialGrid, _dx);
+    GridIndexVector sourceCells = source->getFluidOrAirCells(_materialGrid, _dx);
     GridIndex g;
     for (unsigned int i = 0; i < sourceCells.size(); i++) {
         g = sourceCells[i];
@@ -1385,8 +1817,7 @@ void FluidSimulation::_getNewFluidParticles(FluidSource *source, std::vector<vma
         }
     }
 
-    double eps = 10e-6;
-    double jitter = 0.25*_dx - eps;
+    double jitter = _getMarkerParticleJitter();
     vmath::vec3 jit;
     for (int k = 0; k < newParticleGrid.depth; k++) {
         for (int j = 0; j < newParticleGrid.height; j++) {
@@ -1407,7 +1838,7 @@ void FluidSimulation::_getNewFluidParticles(FluidSource *source, std::vector<vma
 void FluidSimulation::_updateInflowFluidSource(FluidSource *source) {
     FLUIDSIM_ASSERT(source->isInflow());
 
-    GridIndexVector newCells = source->getNewFluidCells(_materialGrid, _dx);
+    GridIndexVector newCells = source->getAirCells(_materialGrid, _dx);
     vmath::vec3 velocity = source->getVelocity();
     if (newCells.size() > 0) {
         _addNewFluidCells(newCells, velocity);
@@ -1448,10 +1879,55 @@ void FluidSimulation::_updateFluidSources() {
 }
 
 void FluidSimulation::_updateAddedFluidCellQueue() {
-    vmath::vec3 velocity;
-    _addNewFluidCells(_addedFluidCellQueue, velocity);
+    if (_addedFluidCellQueue.empty()) {
+        return;
+    }
+
+    for (unsigned int i = 0; i < _addedFluidCellQueue.size(); i++) {
+        _addNewFluidCells(_addedFluidCellQueue[i].indices, 
+                          _addedFluidCellQueue[i].velocity);
+    }
     _addedFluidCellQueue.clear();
     _addedFluidCellQueue.shrink_to_fit();
+}
+
+void FluidSimulation::_updateRemovedFluidCellQueue() {
+    if (_removedFluidCellQueue.empty()) {
+        return;
+    }
+
+    Array3d<bool> isRemovalCell(_isize, _jsize, _ksize, false);
+    GridIndexVector *group;
+    for (unsigned int i = 0; i < _removedFluidCellQueue.size(); i++) {
+        group = &(_removedFluidCellQueue[i].indices);
+        for (unsigned int gidx = 0; gidx < group->size(); gidx++) {
+            isRemovalCell.set(group->at(gidx), true);
+        }
+    }
+    _removedFluidCellQueue.clear();
+    _removedFluidCellQueue.shrink_to_fit();
+
+    std::vector<bool> isRemoved;
+    isRemoved.reserve(_markerParticles.size());
+
+    bool isParticlesInRemovalCell = false;
+    MarkerParticle p;
+    GridIndex g;
+    for (unsigned int i = 0; i < _markerParticles.size(); i++) {
+        p = _markerParticles[i];
+        g = Grid3d::positionToGridIndex(p.position, _dx);
+
+        bool isInRemovalCell = isRemovalCell(g);
+        if (isInRemovalCell) {
+            isParticlesInRemovalCell = true;
+        }
+
+        isRemoved.push_back(isInRemovalCell);
+    }
+
+    if (isParticlesInRemovalCell) {
+        _removeItemsFromVector(_markerParticles, isRemoved);
+    }
 }
 
 void FluidSimulation::_removeMarkerParticlesInSolidCells() {
@@ -1461,6 +1937,7 @@ void FluidSimulation::_removeMarkerParticlesInSolidCells() {
     bool isParticlesInSolidCell = false;
     MarkerParticle p;
     GridIndex g;
+    int count = 0;
     for (unsigned int i = 0; i < _markerParticles.size(); i++) {
         p = _markerParticles[i];
         g = Grid3d::positionToGridIndex(p.position, _dx);
@@ -1468,6 +1945,7 @@ void FluidSimulation::_removeMarkerParticlesInSolidCells() {
         bool isInSolidCell = _materialGrid.isCellSolid(g);
         if (isInSolidCell) {
             isParticlesInSolidCell = true;
+            count++;
         }
 
         isRemoved.push_back(isInSolidCell);
@@ -1512,9 +1990,21 @@ void FluidSimulation::_removeParticlesInSolidCells() {
 void FluidSimulation::_updateFluidCells() {
     _removeParticlesInSolidCells();
     _updateAddedFluidCellQueue();
+    _updateRemovedFluidCellQueue();
     _updateFluidSources();
 
-    _materialGrid.setAir(_fluidCellIndices);
+    //_materialGrid.setAir(_fluidCellIndices);
+
+    for (int k = 1; k < _materialGrid.depth - 1; k++) {
+        for (int j = 1; j < _materialGrid.height - 1; j++) {
+            for (int i = 1; i < _materialGrid.width - 1; i++) {
+                if (_materialGrid.isCellFluid(i, j, k)) {
+                    _materialGrid.setAir(i, j, k);
+                }
+            }
+        }
+    }
+
     _fluidCellIndices.clear();
     
     MarkerParticle p;
@@ -1554,13 +2044,21 @@ void FluidSimulation::_updateFluidCells() {
     2. Reconstruct Internal Fluid Surface
 ********************************************************************************/
 
-TriangleMesh FluidSimulation::_polygonizeInternalSurface() {
+void FluidSimulation::_polygonizeInternalSurface(TriangleMesh &surface, 
+                                                 TriangleMesh &preview) {
     IsotropicParticleMesher mesher(_isize, _jsize, _ksize, _dx);
 
     double r = _markerParticleRadius*_markerParticleScale;
     mesher.setScalarFieldAccelerator(&_scalarFieldAccelerator);
-    
-    return mesher.meshParticles(_markerParticles, _materialGrid, r);
+
+    if (_isPreviewSurfaceMeshEnabled) {
+        mesher.enablePreviewMesher(_previewdx);
+    }
+
+    surface = mesher.meshParticles(_markerParticles, _materialGrid, r);
+    if (_isPreviewSurfaceMeshEnabled) {
+        preview = mesher.getPreviewMesh();
+    }
 }
 
 bool FluidSimulation::_isInternalFluidSurfaceNeeded() {
@@ -1569,6 +2067,8 @@ bool FluidSimulation::_isInternalFluidSurfaceNeeded() {
     isNeeded |= _isAnisotropicSurfaceMeshReconstructionEnabled;
     isNeeded |= _isBrickOutputEnabled;
     isNeeded |= _isDiffuseMaterialOutputEnabled;
+    isNeeded |= _isPreviewSurfaceMeshEnabled && 
+                !_isIsotropicSurfaceMeshReconstructionEnabled;
 
     return isNeeded;
 }
@@ -1578,7 +2078,7 @@ void FluidSimulation::_reconstructInternalFluidSurface() {
         return;
     }
 
-    _surfaceMesh = _polygonizeInternalSurface();
+    _polygonizeInternalSurface(_surfaceMesh, _previewMesh);
     _surfaceMesh.removeMinimumTriangleCountPolyhedra(
                         _minimumSurfacePolyhedronTriangleCount);
 }
@@ -1634,13 +2134,16 @@ void FluidSimulation::_writeDiffuseMaterialToFile(std::string bubblefile,
     }
 
     if (_isBubbleDiffuseMaterialEnabled) {
-        bubbleMesh.writeMeshToPLY(bubblefile);
+        bubbleMesh.translate(_domainOffset);
+        _writeTriangleMeshToFile(bubbleMesh, bubblefile);
     }
     if (_isFoamDiffuseMaterialEnabled) {
-        foamMesh.writeMeshToPLY(foamfile);
+        foamMesh.translate(_domainOffset);
+        _writeTriangleMeshToFile(foamMesh, foamfile);
     }
     if (_isSprayDiffuseMaterialEnabled) {
-        sprayMesh.writeMeshToPLY(sprayfile);
+        sprayMesh.translate(_domainOffset);
+        _writeTriangleMeshToFile(sprayMesh, sprayfile);
     }
 }
 
@@ -1663,12 +2166,13 @@ void FluidSimulation::_writeDiffuseMaterialToFile(std::string diffusefile) {
         }
     }
 
-    diffuseMesh.writeMeshToPLY(diffusefile);
+    diffuseMesh.translate(_domainOffset);
+    _writeTriangleMeshToFile(diffuseMesh, diffusefile);
 }
 
 void FluidSimulation::_writeBrickColorListToFile(TriangleMesh &mesh, 
                                                      std::string filename) {
-    int binsize = 3*sizeof(unsigned char)*mesh.vertexcolors.size();
+    int binsize = 3*sizeof(unsigned char)*(int)mesh.vertexcolors.size();
     char *storage = new char[binsize];
 
     vmath::vec3 c;
@@ -1743,11 +2247,20 @@ void FluidSimulation::_writeBrickMaterialToFile(std::string brickfile,
                                                 std::string colorfile,
                                                 std::string texturefile) {
     TriangleMesh brickmesh;
-    _fluidBrickGrid.getBrickMesh(_levelset, brickmesh);
+    _fluidBrickGrid.getBrickMesh(brickmesh);
 
-    brickmesh.writeMeshToPLY(brickfile);
+    brickmesh.translate(_domainOffset);
+    _writeTriangleMeshToFile(brickmesh, brickfile);
     _writeBrickColorListToFile(brickmesh, colorfile);
     _writeBrickTextureToFile(brickmesh, texturefile);
+}
+
+void FluidSimulation::_writeTriangleMeshToFile(TriangleMesh &mesh, std::string filename) {
+    if (_meshOutputFormat == TriangleMeshFormat::ply) {
+        mesh.writeMeshToPLY(filename);
+    } else if (_meshOutputFormat == TriangleMeshFormat::bobj) {
+        mesh.writeMeshToBOBJ(filename);
+    }
 }
 
 std::string FluidSimulation::_numberToString(int number) {
@@ -1756,41 +2269,10 @@ std::string FluidSimulation::_numberToString(int number) {
     return ss.str();
 }
 
-void FluidSimulation::_writeSurfaceMeshToFile(TriangleMesh &isomesh,
-                                              TriangleMesh &anisomesh) {
-
-    std::string currentFrame = _numberToString(_currentFrame);
+std::string FluidSimulation::_getFrameString(int number) {
+    std::string currentFrame = _numberToString(number);
     currentFrame.insert(currentFrame.begin(), 6 - currentFrame.size(), '0');
-
-    if (_isSurfaceMeshOutputEnabled) {
-        if (_isIsotropicSurfaceMeshReconstructionEnabled) {
-            isomesh.writeMeshToPLY("bakefiles/" + currentFrame + ".ply");
-        }
-
-        if (_isAnisotropicSurfaceMeshReconstructionEnabled) {
-            anisomesh.writeMeshToPLY("bakefiles/anisotropic" + currentFrame + ".ply");
-        }
-    }
-
-    if (_isDiffuseMaterialOutputEnabled) {
-        if (_isDiffuseMaterialFilesSeparated) {
-            _writeDiffuseMaterialToFile("bakefiles/bubble" + currentFrame + ".ply",
-                                        "bakefiles/foam" + currentFrame + ".ply",
-                                        "bakefiles/spray" + currentFrame + ".ply");
-        } else {
-            _writeDiffuseMaterialToFile("bakefiles/diffuse" + currentFrame + ".ply");
-        }
-    }
-
-    if (_isBrickOutputEnabled && _fluidBrickGrid.isBrickMeshReady()) {
-        std::string currentBrickMeshFrame = _numberToString(_currentBrickMeshFrame);
-        currentBrickMeshFrame.insert(currentBrickMeshFrame.begin(), 6 - currentBrickMeshFrame.size(), '0');
-
-        _writeBrickMaterialToFile("bakefiles/brick" + currentBrickMeshFrame + ".ply", 
-                                  "bakefiles/brickcolor" + currentBrickMeshFrame + ".data",
-                                  "bakefiles/bricktexture" + currentBrickMeshFrame + ".data");
-        _currentBrickMeshFrame++;
-    }
+    return currentFrame;
 }
 
 bool FluidSimulation::_isVertexNearSolid(vmath::vec3 v, double eps) {
@@ -1865,7 +2347,8 @@ void FluidSimulation::_smoothSurfaceMesh(TriangleMesh &mesh) {
                 smoothVertices);
 }
 
-TriangleMesh FluidSimulation::_polygonizeIsotropicOutputSurface() {
+void FluidSimulation::_polygonizeIsotropicOutputSurface(TriangleMesh &surface, 
+                                                        TriangleMesh &preview) {
     int slices = _numSurfaceReconstructionPolygonizerSlices;
     double r = _markerParticleRadius*_markerParticleScale;
 
@@ -1874,7 +2357,17 @@ TriangleMesh FluidSimulation::_polygonizeIsotropicOutputSurface() {
     mesher.setSubdivisionLevel(_outputFluidSurfaceSubdivisionLevel);
     mesher.setNumPolygonizationSlices(slices);
 
-    return mesher.meshParticles(_markerParticles, _materialGrid, r);
+    bool isGeneratingPreview = _isPreviewSurfaceMeshEnabled &&
+                               !_isInternalFluidSurfaceNeeded();
+    if (isGeneratingPreview) {
+        mesher.enablePreviewMesher(_previewdx);
+    }
+
+    surface = mesher.meshParticles(_markerParticles, _materialGrid, r);
+    if (isGeneratingPreview) {
+        preview = mesher.getPreviewMesh();
+    }
+
 }
 
 TriangleMesh FluidSimulation::_polygonizeAnisotropicOutputSurface() {
@@ -1898,34 +2391,95 @@ void FluidSimulation::_updateBrickGrid(double dt) {
     _fluidBrickGrid.update(_levelset, _materialGrid, points, dt);
 }
 
+void FluidSimulation::_outputIsotropicSurfaceMesh() {
+    if (!_isSurfaceMeshOutputEnabled) { return; }
+    if (!_isIsotropicSurfaceMeshReconstructionEnabled) { return; }
+
+    TriangleMesh isomesh, previewmesh;
+    if (_outputFluidSurfaceSubdivisionLevel == 1) {
+        isomesh = _surfaceMesh;
+        previewmesh = _previewMesh;
+    } else {
+        _polygonizeIsotropicOutputSurface(isomesh, previewmesh);
+        isomesh.removeMinimumTriangleCountPolyhedra(
+            _minimumSurfacePolyhedronTriangleCount
+        );
+    }
+
+    _smoothSurfaceMesh(isomesh);
+    _smoothSurfaceMesh(previewmesh);
+    isomesh.translate(_domainOffset);
+    previewmesh.translate(_domainOffset);
+
+    std::string framestr = _getFrameString(_currentFrame);
+    std::string bakedir = Config::getBakefilesDirectory();
+    std::string ext = "." + TriangleMesh::getFileExtension(_meshOutputFormat);
+    std::string isofile = bakedir + "/" + framestr + ext;
+    _writeTriangleMeshToFile(isomesh, isofile);
+
+    if (_isPreviewSurfaceMeshEnabled) {
+        std::string previewfile = bakedir + "/preview" + framestr + ext;
+        _writeTriangleMeshToFile(previewmesh, previewfile);
+    }
+}
+
+void FluidSimulation::_outputAnisotropicSurfaceMesh() {
+    if (!_isSurfaceMeshOutputEnabled) { return; }
+    if (!_isAnisotropicSurfaceMeshReconstructionEnabled) { return; }
+
+    TriangleMesh anisomesh = _polygonizeAnisotropicOutputSurface();
+    anisomesh.removeMinimumTriangleCountPolyhedra(
+        _minimumSurfacePolyhedronTriangleCount
+    );
+
+    _smoothSurfaceMesh(anisomesh);
+    anisomesh.translate(_domainOffset);
+
+    std::string framestr = _getFrameString(_currentFrame);
+    std::string bakedir = Config::getBakefilesDirectory();
+    std::string ext = "." + TriangleMesh::getFileExtension(_meshOutputFormat);
+    std::string anisofile = bakedir + "/anisotropic" + framestr + ext;
+    _writeTriangleMeshToFile(anisomesh, anisofile);
+}
+
+void FluidSimulation::_outputDiffuseMaterial() {
+    if (!_isDiffuseMaterialOutputEnabled) { return; }
+
+    std::string framestr = _getFrameString(_currentFrame);
+    std::string bakedir = Config::getBakefilesDirectory();
+    std::string ext = "." + TriangleMesh::getFileExtension(_meshOutputFormat);
+
+    if (_isDiffuseMaterialFilesSeparated) {
+        _writeDiffuseMaterialToFile(bakedir + "/bubble" + framestr + ext,
+                                    bakedir + "/foam" + framestr + ext,
+                                    bakedir + "/spray" + framestr + ext);
+    } else {
+        _writeDiffuseMaterialToFile(bakedir + "/diffuse" + framestr + ext);
+    }
+}
+
+void FluidSimulation::_outputBrickMesh(double dt) {
+    if (!_isBrickOutputEnabled) { return; }
+
+    _updateBrickGrid(dt);
+
+    if (!_fluidBrickGrid.isBrickMeshReady()) { return; }
+
+    std::string framestr = _getFrameString(_currentBrickMeshFrame);
+    std::string bakedir = Config::getBakefilesDirectory();
+    std::string ext = "." + TriangleMesh::getFileExtension(_meshOutputFormat);
+
+    _writeBrickMaterialToFile(bakedir + "/brick" + framestr + ext, 
+                              bakedir + "/brickcolor" + framestr + ".data",
+                              bakedir + "/bricktexture" + framestr + ".data");
+    _currentBrickMeshFrame++;
+}
+
 void FluidSimulation::_reconstructOutputFluidSurface(double dt) {
-    
-    TriangleMesh isomesh, anisomesh;
-    if (_isSurfaceMeshOutputEnabled) {
-        if (_isIsotropicSurfaceMeshReconstructionEnabled) {
-            if (_outputFluidSurfaceSubdivisionLevel == 1) {
-                isomesh = _surfaceMesh;
-            } else {
-                isomesh = _polygonizeIsotropicOutputSurface();
-                isomesh.removeMinimumTriangleCountPolyhedra(
-                            _minimumSurfacePolyhedronTriangleCount);
-            }
-            _smoothSurfaceMesh(isomesh);
-        }
-
-        if (_isAnisotropicSurfaceMeshReconstructionEnabled) {
-            anisomesh = _polygonizeAnisotropicOutputSurface();
-            anisomesh.removeMinimumTriangleCountPolyhedra(
-                            _minimumSurfacePolyhedronTriangleCount);
-            _smoothSurfaceMesh(anisomesh);
-        }
-    }
-
-    if (_isBrickOutputEnabled) {
-        _updateBrickGrid(dt);
-    }
-
-    _writeSurfaceMeshToFile(isomesh, anisomesh);
+    _outputIsotropicSurfaceMesh();
+    _outputAnisotropicSurfaceMesh();
+    _outputDiffuseMaterial();
+    _outputBrickMesh(dt);
 }
 
 /********************************************************************************
@@ -2194,6 +2748,21 @@ vmath::vec3 FluidSimulation::_getConstantBodyForce() {
     return bf;
 }
 
+vmath::vec3 FluidSimulation::_getVariableBodyForce(double px, double py, double pz) {
+    return _getVariableBodyForce(vmath::vec3(px, py, pz));
+}
+
+vmath::vec3 FluidSimulation::_getVariableBodyForce(vmath::vec3 p) {
+    vmath::vec3 fsum;
+    vmath::vec3 (*fieldFunction)(vmath::vec3);
+    for (unsigned int i = 0; i < _variableBodyForces.size(); i++) {
+        fieldFunction = _variableBodyForces[i];
+        fsum += fieldFunction(p);
+    }
+
+    return fsum;
+}
+
 void FluidSimulation::_applyConstantBodyForces(double dt) {
 
     vmath::vec3 bodyForce = _getConstantBodyForce();
@@ -2308,7 +2877,7 @@ void FluidSimulation::_updatePressureGrid(Array3d<float> &pressureGrid, double d
     params.velocityField = &_MACVelocity;
     params.logfile = &_logfile;
 
-    VectorXd pressures(_fluidCellIndices.size());
+    VectorXd pressures((int)_fluidCellIndices.size());
     PressureSolver solver;
     solver.solve(params, pressures);
 
@@ -2818,7 +3387,6 @@ void FluidSimulation::_stepFluid(double dt) {
     _logfile.log("Update time:   ", totalTime, 3);
     _logfile.log("Total time:    ", _realTime, 3);
     _logfile.newline();
-    _logfile.write();
 }
 
 double FluidSimulation::_getMaximumMarkerParticleSpeed() {
@@ -2842,7 +3410,8 @@ double FluidSimulation::_calculateNextTimeStep() {
 }
 
 void FluidSimulation::_autosave() {
-    saveState("savestates/autosave.state");
+    std::string dir = Config::getSavestatesDirectory();
+    saveState(dir + "/autosave.state");
 }
 
 void FluidSimulation::update(double dt) {

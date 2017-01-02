@@ -284,7 +284,7 @@ __kernel void tricubic_interpolate_kernel(__global float *particles,
 
     size_t tid = get_global_id(0);
 	size_t lid = get_local_id(0);
-	size_t gid = get_group_id(0);
+	size_t gid = tid / get_local_size(0);
 
     // Load fvield_data into local memory
     if (lid < MAX_VFIELD_LOAD_LOCAL_ID) {
